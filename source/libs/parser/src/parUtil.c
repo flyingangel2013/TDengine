@@ -138,7 +138,7 @@ static char* getSyntaxErrFormat(int32_t errCode) {
     case TSDB_CODE_PAR_CANNOT_DROP_PRIMARY_KEY:
       return "Primary timestamp column cannot be dropped";
     case TSDB_CODE_PAR_INVALID_MODIFY_COL:
-      return "Only binary/nchar column length could be modified, and the length can only be increased, not decreased";
+      return "Only binary/nchar/geometry column length could be modified, and the length can only be increased, not decreased";
     case TSDB_CODE_PAR_INVALID_TBNAME:
       return "Invalid tbname pseudo column";
     case TSDB_CODE_PAR_INVALID_FUNCTION_NAME:
@@ -164,6 +164,8 @@ static char* getSyntaxErrFormat(int32_t errCode) {
       return "%s function is not supported in fill query";
     case TSDB_CODE_PAR_INVALID_WINDOW_PC:
       return "_WSTART, _WEND and _WDURATION can only be used in window query";
+    case TSDB_CODE_PAR_INVALID_TAGS_PC:
+      return "Tags can only applied to super table and child table";
     case TSDB_CODE_PAR_WINDOW_NOT_ALLOWED_FUNC:
       return "%s function is not supported in time window query";
     case TSDB_CODE_PAR_STREAM_NOT_ALLOWED_FUNC:
@@ -172,6 +174,8 @@ static char* getSyntaxErrFormat(int32_t errCode) {
       return "%s function is not supported in group query";
     case TSDB_CODE_PAR_SYSTABLE_NOT_ALLOWED_FUNC:
       return "%s function is not supported in system table query";
+    case TSDB_CODE_PAR_SYSTABLE_NOT_ALLOWED:
+      return "%s is not supported in system table query";
     case TSDB_CODE_PAR_INVALID_INTERP_CLAUSE:
       return "Invalid usage of RANGE clause, EVERY clause or FILL clause";
     case TSDB_CODE_PAR_NO_VALID_FUNC_IN_WIN:
@@ -250,6 +254,17 @@ int32_t getNumOfColumns(const STableMeta* pTableMeta) {
 int32_t getNumOfTags(const STableMeta* pTableMeta) { return getTableInfo(pTableMeta).numOfTags; }
 
 STableComInfo getTableInfo(const STableMeta* pTableMeta) { return pTableMeta->tableInfo; }
+
+int32_t getTableTypeFromTableNode(SNode *pTable) {
+  if (NULL == pTable) {
+    return -1;
+  }
+  if (QUERY_NODE_REAL_TABLE != nodeType(pTable)) {
+    return -1;
+  }
+  return ((SRealTableNode *)pTable)->pMeta->tableType;
+}
+
 
 STableMeta* tableMetaDup(const STableMeta* pTableMeta) {
   int32_t numOfFields = TABLE_TOTAL_COL_NUM(pTableMeta);
@@ -686,7 +701,7 @@ SNode* createSelectStmtImpl(bool isDistinct, SNodeList* pProjectionList, SNode* 
   select->pProjectionList = pProjectionList;
   select->pFromTable = pTable;
   sprintf(select->stmtName, "%p", select);
-  select->isTimeLineResult = true;
+  select->timeLineResMode = select->isDistinct ? TIME_LINE_NONE : TIME_LINE_GLOBAL;
   select->onlyHasKeepOrderFunc = true;
   select->timeRange = TSWINDOW_INITIALIZER;
   return (SNode*)select;

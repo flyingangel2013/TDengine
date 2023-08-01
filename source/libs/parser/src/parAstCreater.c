@@ -704,6 +704,11 @@ SNode* createInterpTimeRange(SAstCreateContext* pCxt, SNode* pStart, SNode* pEnd
   return createBetweenAnd(pCxt, createPrimaryKeyCol(pCxt, NULL), pStart, pEnd);
 }
 
+SNode* createInterpTimePoint(SAstCreateContext* pCxt, SNode* pPoint) {
+  CHECK_PARSER_STATUS(pCxt);
+  return createOperatorNode(pCxt, OP_TYPE_EQUAL, createPrimaryKeyCol(pCxt, NULL), pPoint);
+}
+
 SNode* createWhenThenNode(SAstCreateContext* pCxt, SNode* pWhen, SNode* pThen) {
   CHECK_PARSER_STATUS(pCxt);
   SWhenThenNode* pWhenThen = (SWhenThenNode*)nodesMakeNode(QUERY_NODE_WHEN_THEN);
@@ -1710,7 +1715,7 @@ SNode* createCreateTopicStmtUseQuery(SAstCreateContext* pCxt, bool ignoreExists,
 }
 
 SNode* createCreateTopicStmtUseDb(SAstCreateContext* pCxt, bool ignoreExists, SToken* pTopicName, SToken* pSubDbName,
-                                  bool withMeta) {
+                                  int8_t withMeta) {
   CHECK_PARSER_STATUS(pCxt);
   if (!checkTopicName(pCxt, pTopicName) || !checkDbName(pCxt, pSubDbName, true)) {
     return NULL;
@@ -1725,7 +1730,7 @@ SNode* createCreateTopicStmtUseDb(SAstCreateContext* pCxt, bool ignoreExists, ST
 }
 
 SNode* createCreateTopicStmtUseTable(SAstCreateContext* pCxt, bool ignoreExists, SToken* pTopicName, SNode* pRealTable,
-                                     bool withMeta, SNode* pWhere) {
+                                     int8_t withMeta, SNode* pWhere) {
   CHECK_PARSER_STATUS(pCxt);
   if (!checkTopicName(pCxt, pTopicName)) {
     return NULL;

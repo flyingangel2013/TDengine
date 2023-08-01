@@ -926,7 +926,6 @@ int32_t ctgGenerateVgList(SCatalog* pCtg, SHashObj* vgHash, SArray** pList) {
     }
 
     pIter = taosHashIterate(vgHash, pIter);
-    vgInfo = NULL;
   }
 
   *pList = vgList;
@@ -1590,13 +1589,22 @@ int32_t ctgChkSetAuthRes(SCatalog* pCtg, SCtgAuthReq* req, SCtgAuthRsp* res) {
     return TSDB_CODE_SUCCESS;
   }
 
+  if (IS_SYS_DBNAME(pReq->tbName.dbname)) {
+    pRes->pass = true;
+    ctgDebug("sysdb %s, pass", pReq->tbName.dbname);
+    return TSDB_CODE_SUCCESS;
+  }
+
   char dbFName[TSDB_DB_FNAME_LEN];
   tNameGetFullDbName(&pReq->tbName, dbFName);
 
+  // since that we add read/write previliges when create db, there is no need to check createdDbs
+#if 0
   if (pInfo->createdDbs && taosHashGet(pInfo->createdDbs, dbFName, strlen(dbFName))) {
     pRes->pass = true;
     return TSDB_CODE_SUCCESS;
   }
+#endif
 
   switch (pReq->type) {
     case AUTH_TYPE_READ: {

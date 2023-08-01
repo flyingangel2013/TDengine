@@ -108,7 +108,7 @@ typedef enum {
   TRN_STAGE_UNDO_ACTION = 3,
   TRN_STAGE_COMMIT = 4,
   TRN_STAGE_COMMIT_ACTION = 5,
-  TRN_STAGE_FINISHED = 6,
+  TRN_STAGE_FINISH = 6,
   TRN_STAGE_PRE_FINISH = 7
 } ETrnStage;
 
@@ -133,16 +133,16 @@ typedef enum {
   DND_REASON_TIME_ZONE_NOT_MATCH,
   DND_REASON_LOCALE_NOT_MATCH,
   DND_REASON_CHARSET_NOT_MATCH,
+  DND_REASON_TTL_CHANGE_ON_WRITE_NOT_MATCH,
   DND_REASON_OTHERS
 } EDndReason;
 
 typedef enum {
-  CONSUMER_UPDATE__TOUCH = 1,   // rebalance req do not need change consume topic
-  CONSUMER_UPDATE__ADD,
-  CONSUMER_UPDATE__REMOVE,
-  CONSUMER_UPDATE__LOST,
-  CONSUMER_UPDATE__RECOVER,
-  CONSUMER_UPDATE__REBALANCE,      // subscribe req need change consume topic
+  CONSUMER_UPDATE_REB = 1,  // update after rebalance
+  CONSUMER_ADD_REB,         // add    after rebalance
+  CONSUMER_REMOVE_REB,      // remove after rebalance
+  CONSUMER_UPDATE_REC,      // update after recover
+  CONSUMER_UPDATE_SUB,      // update after subscribe req
 } ECsmUpdateType;
 
 typedef struct {
@@ -157,6 +157,7 @@ typedef struct {
   void*       rpcRsp;
   int32_t     rpcRspLen;
   int32_t     redoActionPos;
+  SArray*     prepareActions;
   SArray*     redoActions;
   SArray*     undoActions;
   SArray*     commitActions;
@@ -215,8 +216,9 @@ typedef struct {
   int64_t    createdTime;
   int64_t    updateTime;
   ESyncState syncState;
+  SyncTerm   syncTerm;
   bool       syncRestore;
-  int64_t    stateStartTime;
+  int64_t    roleTimeMs;
   SDnodeObj* pDnode;
   int32_t    role;
   SyncIndex  lastIndex;
@@ -548,15 +550,20 @@ typedef struct {
   // data for display
   int32_t pid;
   SEpSet  ep;
-  int64_t upTime;
+  int64_t createTime;
   int64_t subscribeTime;
   int64_t rebalanceTime;
+
+  int8_t         withTbName;
+  int8_t         autoCommit;
+  int32_t        autoCommitInterval;
+  int32_t        resetOffsetCfg;
 } SMqConsumerObj;
 
 SMqConsumerObj* tNewSMqConsumerObj(int64_t consumerId, char cgroup[TSDB_CGROUP_LEN]);
-void            tDeleteSMqConsumerObj(SMqConsumerObj* pConsumer);
+void            tDeleteSMqConsumerObj(SMqConsumerObj* pConsumer, bool delete);
 int32_t         tEncodeSMqConsumerObj(void** buf, const SMqConsumerObj* pConsumer);
-void*           tDecodeSMqConsumerObj(const void* buf, SMqConsumerObj* pConsumer);
+void*           tDecodeSMqConsumerObj(const void* buf, SMqConsumerObj* pConsumer, int8_t sver);
 
 typedef struct {
   int32_t vgId;
@@ -572,11 +579,11 @@ void*    tDecodeSMqVgEp(const void* buf, SMqVgEp* pVgEp, int8_t sver);
 typedef struct {
   int64_t consumerId;  // -1 for unassigned
   SArray* vgs;         // SArray<SMqVgEp*>
-  SArray* offsetRows; // SArray<OffsetRows*>
+  SArray* offsetRows;  // SArray<OffsetRows*>
 } SMqConsumerEp;
 
-SMqConsumerEp* tCloneSMqConsumerEp(const SMqConsumerEp* pEp);
-void           tDeleteSMqConsumerEp(void* pEp);
+//SMqConsumerEp* tCloneSMqConsumerEp(const SMqConsumerEp* pEp);
+//void           tDeleteSMqConsumerEp(void* pEp);
 int32_t        tEncodeSMqConsumerEp(void** buf, const SMqConsumerEp* pEp);
 void*          tDecodeSMqConsumerEp(const void* buf, SMqConsumerEp* pEp, int8_t sver);
 
@@ -592,7 +599,7 @@ typedef struct {
   SArray*   unassignedVgs;  // SArray<SMqVgEp*>
   SArray*   offsetRows;
   char      dbName[TSDB_DB_FNAME_LEN];
-  char*     qmsg; // SubPlanToString
+  char*     qmsg;           // SubPlanToString
 } SMqSubscribeObj;
 
 SMqSubscribeObj* tNewSubscribeObj(const char key[TSDB_SUBSCRIBE_KEY_LEN]);
@@ -641,6 +648,14 @@ typedef struct {
 //  SMqSubActionLogEntry* pLogEntry;
 } SMqRebOutputObj;
 
+typedef struct SStreamConf {
+  int8_t  igExpired;
+  int8_t  trigger;
+  int8_t  fillHistory;
+  int64_t triggerParam;
+  int64_t watermark;
+} SStreamConf;
+
 typedef struct {
   char name[TSDB_STREAM_FNAME_LEN];
   // ctl
@@ -654,12 +669,7 @@ typedef struct {
   // info
   int64_t uid;
   int8_t  status;
-  // config
-  int8_t  igExpired;
-  int8_t  trigger;
-  int8_t  fillHistory;
-  int64_t triggerParam;
-  int64_t watermark;
+  SStreamConf conf;
   // source and target
   int64_t sourceDbUid;
   int64_t targetDbUid;
@@ -669,14 +679,18 @@ typedef struct {
   int64_t targetStbUid;
 
   // fixedSinkVg is not applicable for encode and decode
-  SVgObj fixedSinkVg;
+  SVgObj  fixedSinkVg;
   int32_t fixedSinkVgId;  // 0 for shuffle
 
   // transformation
   char*          sql;
   char*          ast;
   char*          physicalPlan;
-  SArray*        tasks;  // SArray<SArray<SStreamTask>>
+  SArray*        tasks;        // SArray<SArray<SStreamTask>>
+
+  SArray*        pHTasksList;   // generate the results for already stored ts data
+  int64_t        hTaskUid; // stream task for history ts data
+
   SSchemaWrapper outputSchema;
   SSchemaWrapper tagSchema;
 
@@ -691,12 +705,12 @@ int32_t tEncodeSStreamObj(SEncoder* pEncoder, const SStreamObj* pObj);
 int32_t tDecodeSStreamObj(SDecoder* pDecoder, SStreamObj* pObj, int32_t sver);
 void    tFreeStreamObj(SStreamObj* pObj);
 
-typedef struct {
-  char    streamName[TSDB_STREAM_FNAME_LEN];
-  int64_t uid;
-  int64_t streamUid;
-  SArray* childInfo;  // SArray<SStreamChildEpInfo>
-} SStreamCheckpointObj;
+//typedef struct {
+//  char    streamName[TSDB_STREAM_FNAME_LEN];
+//  int64_t uid;
+//  int64_t streamUid;
+//  SArray* childInfo;  // SArray<SStreamChildEpInfo>
+//} SStreamCheckpointObj;
 
 #ifdef __cplusplus
 }
