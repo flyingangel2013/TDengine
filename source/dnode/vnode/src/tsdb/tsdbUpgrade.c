@@ -87,7 +87,7 @@ static int32_t tsdbUpgradeHead(STsdb *tsdb, SDFileSet *pDFileSet, SDataFReader *
     char fname[TSDB_FILENAME_LEN];
     tsdbTFileName(tsdb, &file, fname);
 
-    code = tsdbOpenFile(fname, ctx->szPage, TD_FILE_READ | TD_FILE_WRITE, &ctx->fd);
+    code = tsdbOpenFile(fname, tsdb, TD_FILE_READ | TD_FILE_WRITE, &ctx->fd);
     TSDB_CHECK_CODE(code, lino, _exit);
 
     // convert
@@ -120,15 +120,7 @@ static int32_t tsdbUpgradeHead(STsdb *tsdb, SDFileSet *pDFileSet, SDataFReader *
         };
 
         if (dataBlk->hasDup) {
-          code = tsdbReadDataBlockEx(reader, dataBlk, ctx->blockData);
-          TSDB_CHECK_CODE(code, lino, _exit);
-
-          record.count = 1;
-          for (int32_t i = 1; i < ctx->blockData->nRow; ++i) {
-            if (ctx->blockData->aTSKEY[i] != ctx->blockData->aTSKEY[i - 1]) {
-              record.count++;
-            }
-          }
+          record.count = 0;
         }
 
         code = tBrinBlockPut(ctx->brinBlock, &record);
@@ -265,7 +257,7 @@ static int32_t tsdbUpgradeSttFile(STsdb *tsdb, SDFileSet *pDFileSet, SDataFReade
     code = tsdbTFileObjInit(tsdb, &file, &fobj);
     TSDB_CHECK_CODE(code, lino, _exit1);
 
-    code = tsdbOpenFile(fobj->fname, ctx->szPage, TD_FILE_READ | TD_FILE_WRITE, &ctx->fd);
+    code = tsdbOpenFile(fobj->fname, tsdb, TD_FILE_READ | TD_FILE_WRITE, &ctx->fd);
     TSDB_CHECK_CODE(code, lino, _exit1);
 
     for (int32_t iSttBlk = 0; iSttBlk < taosArrayGetSize(aSttBlk); iSttBlk++) {
@@ -334,6 +326,8 @@ static int32_t tsdbUpgradeFileSet(STsdb *tsdb, SDFileSet *pDFileSet, TFileSetArr
   int32_t code = 0;
   int32_t lino = 0;
 
+  tsdbInfo("vgId:%d upgrade file set start, fid:%d", TD_VID(tsdb->pVnode), pDFileSet->fid);
+
   SDataFReader *reader;
   STFileSet    *fset;
 
@@ -365,6 +359,8 @@ static int32_t tsdbUpgradeFileSet(STsdb *tsdb, SDFileSet *pDFileSet, TFileSetArr
 
   code = TARRAY2_APPEND(fileSetArray, fset);
   TSDB_CHECK_CODE(code, lino, _exit);
+
+  tsdbInfo("vgId:%d upgrade file set end, fid:%d", TD_VID(tsdb->pVnode), pDFileSet->fid);
 
 _exit:
   if (code) {
@@ -412,8 +408,7 @@ static int32_t tsdbUpgradeOpenTombFile(STsdb *tsdb, STFileSet *fset, STsdbFD **f
   }
 
   char fname[TSDB_FILENAME_LEN] = {0};
-  code = tsdbOpenFile(fobj[0]->fname, tsdb->pVnode->config.tsdbPageSize,
-                      TD_FILE_READ | TD_FILE_WRITE | TD_FILE_TRUNC | TD_FILE_CREATE, fd);
+  code = tsdbOpenFile(fobj[0]->fname, tsdb, TD_FILE_READ | TD_FILE_WRITE | TD_FILE_TRUNC | TD_FILE_CREATE, fd);
   TSDB_CHECK_CODE(code, lino, _exit);
 
   uint8_t hdr[TSDB_FHDR_SIZE] = {0};

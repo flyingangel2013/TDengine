@@ -1904,7 +1904,7 @@ int32_t apercentileFunction(SqlFunctionCtx* pCtx) {
   return TSDB_CODE_SUCCESS;
 }
 
-static void apercentileTransferInfo(SAPercentileInfo* pInput, SAPercentileInfo* pOutput) {
+static void apercentileTransferInfo(SAPercentileInfo* pInput, SAPercentileInfo* pOutput, bool* hasRes) {
   pOutput->percent = pInput->percent;
   pOutput->algo = pInput->algo;
   if (pOutput->algo == APERCT_ALGO_TDIGEST) {
@@ -1913,6 +1913,10 @@ static void apercentileTransferInfo(SAPercentileInfo* pInput, SAPercentileInfo* 
 
     if (pInput->pTDigest->num_centroids == 0 && pInput->pTDigest->num_buffered_pts == 0) {
       return;
+    }
+
+    if (hasRes) {
+      *hasRes = true;
     }
 
     buildTDigestInfo(pOutput);
@@ -1929,6 +1933,10 @@ static void apercentileTransferInfo(SAPercentileInfo* pInput, SAPercentileInfo* 
     buildHistogramInfo(pInput);
     if (pInput->pHisto->numOfElems <= 0) {
       return;
+    }
+
+    if (hasRes) {
+      *hasRes = true;
     }
 
     buildHistogramInfo(pOutput);
@@ -1970,12 +1978,13 @@ int32_t apercentileFunctionMerge(SqlFunctionCtx* pCtx) {
 
   qDebug("%s total %" PRId64 " rows will merge, %p", __FUNCTION__, pInput->numOfRows, pInfo->pHisto);
 
+  bool hasRes = false;
   int32_t start = pInput->startRowIndex;
   for (int32_t i = start; i < start + pInput->numOfRows; ++i) {
     char* data = colDataGetData(pCol, i);
 
     SAPercentileInfo* pInputInfo = (SAPercentileInfo*)varDataVal(data);
-    apercentileTransferInfo(pInputInfo, pInfo);
+    apercentileTransferInfo(pInputInfo, pInfo, &hasRes);
   }
 
   if (pInfo->algo != APERCT_ALGO_TDIGEST) {
@@ -1984,7 +1993,7 @@ int32_t apercentileFunctionMerge(SqlFunctionCtx* pCtx) {
            pInfo->pHisto->numOfEntries, pInfo->pHisto);
   }
 
-  SET_VAL(pResInfo, 1, 1);
+  SET_VAL(pResInfo, hasRes ? 1 : 0, 1);
   return TSDB_CODE_SUCCESS;
 }
 
@@ -2056,7 +2065,7 @@ int32_t apercentileCombine(SqlFunctionCtx* pDestCtx, SqlFunctionCtx* pSourceCtx)
 
   qDebug("%s start to combine apercentile, %p", __FUNCTION__, pDBuf->pHisto);
 
-  apercentileTransferInfo(pSBuf, pDBuf);
+  apercentileTransferInfo(pSBuf, pDBuf, NULL);
   pDResInfo->numOfRes = TMAX(pDResInfo->numOfRes, pSResInfo->numOfRes);
   pDResInfo->isNullRes &= pSResInfo->isNullRes;
   return TSDB_CODE_SUCCESS;
@@ -2714,16 +2723,20 @@ static int32_t doSetPrevVal(SDiffInfo* pDiffInfo, int32_t type, const char* pv, 
     case TSDB_DATA_TYPE_BOOL:
       pDiffInfo->prev.i64 = *(bool*)pv ? 1 : 0;
       break;
+    case TSDB_DATA_TYPE_UTINYINT:
     case TSDB_DATA_TYPE_TINYINT:
       pDiffInfo->prev.i64 = *(int8_t*)pv;
       break;
+    case TSDB_DATA_TYPE_UINT:
     case TSDB_DATA_TYPE_INT:
       pDiffInfo->prev.i64 = *(int32_t*)pv;
       break;
+    case TSDB_DATA_TYPE_USMALLINT:
     case TSDB_DATA_TYPE_SMALLINT:
       pDiffInfo->prev.i64 = *(int16_t*)pv;
       break;
     case TSDB_DATA_TYPE_TIMESTAMP:
+    case TSDB_DATA_TYPE_UBIGINT:
     case TSDB_DATA_TYPE_BIGINT:
       pDiffInfo->prev.i64 = *(int64_t*)pv;
       break;
@@ -2745,6 +2758,7 @@ static int32_t doHandleDiff(SDiffInfo* pDiffInfo, int32_t type, const char* pv, 
                             int64_t ts) {
   pDiffInfo->prevTs = ts;
   switch (type) {
+    case TSDB_DATA_TYPE_UINT:
     case TSDB_DATA_TYPE_INT: {
       int32_t v = *(int32_t*)pv;
       int64_t delta = v - pDiffInfo->prev.i64;  // direct previous may be null
@@ -2758,6 +2772,7 @@ static int32_t doHandleDiff(SDiffInfo* pDiffInfo, int32_t type, const char* pv, 
       break;
     }
     case TSDB_DATA_TYPE_BOOL:
+    case TSDB_DATA_TYPE_UTINYINT:
     case TSDB_DATA_TYPE_TINYINT: {
       int8_t  v = *(int8_t*)pv;
       int64_t delta = v - pDiffInfo->prev.i64;  // direct previous may be null
@@ -2769,6 +2784,7 @@ static int32_t doHandleDiff(SDiffInfo* pDiffInfo, int32_t type, const char* pv, 
       pDiffInfo->prev.i64 = v;
       break;
     }
+    case TSDB_DATA_TYPE_USMALLINT:
     case TSDB_DATA_TYPE_SMALLINT: {
       int16_t v = *(int16_t*)pv;
       int64_t delta = v - pDiffInfo->prev.i64;  // direct previous may be null
@@ -2781,6 +2797,7 @@ static int32_t doHandleDiff(SDiffInfo* pDiffInfo, int32_t type, const char* pv, 
       break;
     }
     case TSDB_DATA_TYPE_TIMESTAMP:
+    case TSDB_DATA_TYPE_UBIGINT:
     case TSDB_DATA_TYPE_BIGINT: {
       int64_t v = *(int64_t*)pv;
       int64_t delta = v - pDiffInfo->prev.i64;  // direct previous may be null
@@ -5768,6 +5785,8 @@ int32_t derivativeFunction(SqlFunctionCtx* pCtx) {
   return TSDB_CODE_SUCCESS;
 }
 
+int32_t getIrateInfoSize() { return (int32_t)sizeof(SRateInfo); }
+
 bool getIrateFuncEnv(struct SFunctionNode* pFunc, SFuncExecEnv* pEnv) {
   pEnv->calcMemSize = sizeof(SRateInfo);
   return true;
@@ -5817,6 +5836,7 @@ int32_t irateFunction(SqlFunctionCtx* pCtx) {
     if (INT64_MIN == pRateInfo->lastKey) {
       pRateInfo->lastValue = v;
       pRateInfo->lastKey = tsList[i];
+      pRateInfo->hasResult = 1;
       continue;
     }
 
@@ -5866,6 +5886,99 @@ static double doCalcRate(const SRateInfo* pRateInfo, double tickPerSec) {
   }
 
   return (duration > 0) ? ((double)diff) / (duration / tickPerSec) : 0.0;
+}
+
+static void irateTransferInfoImpl(TSKEY inputKey, SRateInfo* pInput, SRateInfo* pOutput, bool isFirstKey) {
+  if (inputKey > pOutput->lastKey) {
+    pOutput->firstKey   = pOutput->lastKey;
+    pOutput->firstValue = pOutput->lastValue;
+
+    pOutput->lastKey    = isFirstKey ? pInput->firstKey : pInput->lastKey;
+    pOutput->lastValue  = isFirstKey ? pInput->firstValue : pInput->lastValue;
+  } else if ((inputKey < pOutput->lastKey) && (inputKey > pOutput->firstKey)) {
+    pOutput->firstKey   = isFirstKey ? pInput->firstKey : pInput->lastKey;
+    pOutput->firstValue = isFirstKey ? pInput->firstValue : pInput->lastValue;
+  } else {
+    // inputKey < pOutput->firstKey
+  }
+}
+
+static void irateCopyInfo(SRateInfo* pInput, SRateInfo* pOutput) {
+  pOutput->firstKey = pInput->firstKey;
+  pOutput->lastKey  = pInput->lastKey;
+
+  pOutput->firstValue = pInput->firstValue;
+  pOutput->lastValue  = pInput->lastValue;
+}
+
+static int32_t irateTransferInfo(SRateInfo* pInput, SRateInfo* pOutput) {
+  if ((pInput->firstKey != INT64_MIN && (pInput->firstKey == pOutput->firstKey || pInput->firstKey == pOutput->lastKey)) ||
+      (pInput->lastKey != INT64_MIN && (pInput->lastKey  == pOutput->firstKey || pInput->lastKey  == pOutput->lastKey))) {
+    return TSDB_CODE_FUNC_DUP_TIMESTAMP;
+  }
+
+  if (pOutput->hasResult == 0) {
+    irateCopyInfo(pInput, pOutput);
+    pOutput->hasResult = pInput->hasResult;
+    return TSDB_CODE_SUCCESS;
+  }
+
+  if (pInput->firstKey != INT64_MIN) {
+    irateTransferInfoImpl(pInput->firstKey, pInput, pOutput, true);
+  }
+
+  if (pInput->lastKey != INT64_MIN) {
+    irateTransferInfoImpl(pInput->lastKey, pInput, pOutput, false);
+  }
+
+  pOutput->hasResult = pInput->hasResult;
+  return TSDB_CODE_SUCCESS;
+}
+
+int32_t irateFunctionMerge(SqlFunctionCtx* pCtx) {
+  SInputColumnInfoData* pInput = &pCtx->input;
+  SColumnInfoData*      pCol = pInput->pData[0];
+  if (pCol->info.type != TSDB_DATA_TYPE_BINARY) {
+    return TSDB_CODE_FUNC_FUNTION_PARA_TYPE;
+  }
+
+  SRateInfo* pInfo = GET_ROWCELL_INTERBUF(GET_RES_INFO(pCtx));
+
+  int32_t start = pInput->startRowIndex;
+  for (int32_t i = start; i < start + pInput->numOfRows; ++i) {
+    char*        data = colDataGetData(pCol, i);
+    SRateInfo*   pInputInfo = (SRateInfo*)varDataVal(data);
+    if (pInputInfo->hasResult) {
+      int32_t code = irateTransferInfo(pInputInfo, pInfo);
+      if (code != TSDB_CODE_SUCCESS) {
+        return code;
+      }
+    }
+  }
+
+  if (pInfo->hasResult) {
+    GET_RES_INFO(pCtx)->numOfRes = 1;
+  }
+
+  return TSDB_CODE_SUCCESS;
+}
+
+int32_t iratePartialFinalize(SqlFunctionCtx* pCtx, SSDataBlock* pBlock) {
+  SResultRowEntryInfo* pResInfo = GET_RES_INFO(pCtx);
+  SRateInfo*           pInfo = GET_ROWCELL_INTERBUF(GET_RES_INFO(pCtx));
+  int32_t              resultBytes = getIrateInfoSize();
+  char*                res = taosMemoryCalloc(resultBytes + VARSTR_HEADER_SIZE, sizeof(char));
+
+  memcpy(varDataVal(res), pInfo, resultBytes);
+  varDataSetLen(res, resultBytes);
+
+  int32_t          slotId = pCtx->pExpr->base.resSchema.slotId;
+  SColumnInfoData* pCol = taosArrayGet(pBlock->pDataBlock, slotId);
+
+  colDataSetVal(pCol, pBlock->info.rows, res, false);
+
+  taosMemoryFree(res);
+  return pResInfo->numOfRes;
 }
 
 int32_t irateFinalize(SqlFunctionCtx* pCtx, SSDataBlock* pBlock) {

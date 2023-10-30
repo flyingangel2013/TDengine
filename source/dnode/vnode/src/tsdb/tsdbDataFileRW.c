@@ -101,7 +101,7 @@ int32_t tsdbDataFileReaderOpen(const char *fname[], const SDataFileReaderConfig 
   if (fname) {
     for (int32_t i = 0; i < TSDB_FTYPE_MAX; ++i) {
       if (fname[i]) {
-        code = tsdbOpenFile(fname[i], config->szPage, TD_FILE_READ, &reader[0]->fd[i]);
+        code = tsdbOpenFile(fname[i], config->tsdb, TD_FILE_READ, &reader[0]->fd[i]);
         TSDB_CHECK_CODE(code, lino, _exit);
       }
     }
@@ -110,7 +110,7 @@ int32_t tsdbDataFileReaderOpen(const char *fname[], const SDataFileReaderConfig 
       if (config->files[i].exist) {
         char fname1[TSDB_FILENAME_LEN];
         tsdbTFileName(config->tsdb, &config->files[i].file, fname1);
-        code = tsdbOpenFile(fname1, config->szPage, TD_FILE_READ, &reader[0]->fd[i]);
+        code = tsdbOpenFile(fname1, config->tsdb, TD_FILE_READ, &reader[0]->fd[i]);
         TSDB_CHECK_CODE(code, lino, _exit);
       }
     }
@@ -980,9 +980,7 @@ static int32_t tsdbDataFileDoWriteTableOldData(SDataFileWriter *writer, const TS
       writer->ctx->brinBlkArray = NULL;
       writer->ctx->tbHasOldData = false;
       goto _exit;
-    }
-
-    for (; writer->ctx->brinBlkArrayIdx < TARRAY2_SIZE(writer->ctx->brinBlkArray); writer->ctx->brinBlkArrayIdx++) {
+    } else {
       const SBrinBlk *brinBlk = TARRAY2_GET_PTR(writer->ctx->brinBlkArray, writer->ctx->brinBlkArrayIdx);
 
       if (brinBlk->minTbid.uid != writer->ctx->tbid->uid) {
@@ -995,7 +993,6 @@ static int32_t tsdbDataFileDoWriteTableOldData(SDataFileWriter *writer, const TS
 
       writer->ctx->brinBlockIdx = 0;
       writer->ctx->brinBlkArrayIdx++;
-      break;
     }
   }
 
@@ -1110,9 +1107,7 @@ static int32_t tsdbDataFileWriteTableDataBegin(SDataFileWriter *writer, const TA
     if (writer->ctx->brinBlkArrayIdx >= TARRAY2_SIZE(writer->ctx->brinBlkArray)) {
       writer->ctx->brinBlkArray = NULL;
       break;
-    }
-
-    for (; writer->ctx->brinBlkArrayIdx < TARRAY2_SIZE(writer->ctx->brinBlkArray); writer->ctx->brinBlkArrayIdx++) {
+    } else {
       const SBrinBlk *brinBlk = TARRAY2_GET_PTR(writer->ctx->brinBlkArray, writer->ctx->brinBlkArrayIdx);
 
       code = tsdbDataFileReadBrinBlock(writer->ctx->reader, brinBlk, writer->ctx->brinBlock);
@@ -1120,7 +1115,6 @@ static int32_t tsdbDataFileWriteTableDataBegin(SDataFileWriter *writer, const TA
 
       writer->ctx->brinBlockIdx = 0;
       writer->ctx->brinBlkArrayIdx++;
-      break;
     }
   }
 
@@ -1229,10 +1223,15 @@ static int32_t tsdbDataFileDoWriteTombRecord(SDataFileWriter *writer, const STom
 
       int32_t c = tTombRecordCompare(record, record1);
       if (c < 0) {
-        break;
+        goto _write;
       } else if (c > 0) {
         code = tTombBlockPut(writer->tombBlock, record1);
         TSDB_CHECK_CODE(code, lino, _exit);
+
+        tsdbTrace("vgId:%d write tomb record to tomb file:%s, cid:%" PRId64 ", suid:%" PRId64 ", uid:%" PRId64
+                  ", version:%" PRId64,
+                  TD_VID(writer->config->tsdb->pVnode), writer->fd[TSDB_FTYPE_TOMB]->path, writer->config->cid,
+                  record1->suid, record1->uid, record1->version);
 
         if (TOMB_BLOCK_SIZE(writer->tombBlock) >= writer->config->maxRow) {
           code = tsdbDataFileDoWriteTombBlock(writer);
@@ -1246,9 +1245,7 @@ static int32_t tsdbDataFileDoWriteTombRecord(SDataFileWriter *writer, const STom
     if (writer->ctx->tombBlkArrayIdx >= TARRAY2_SIZE(writer->ctx->tombBlkArray)) {
       writer->ctx->hasOldTomb = false;
       break;
-    }
-
-    for (; writer->ctx->tombBlkArrayIdx < TARRAY2_SIZE(writer->ctx->tombBlkArray); ++writer->ctx->tombBlkArrayIdx) {
+    } else {
       const STombBlk *tombBlk = TARRAY2_GET_PTR(writer->ctx->tombBlkArray, writer->ctx->tombBlkArrayIdx);
 
       code = tsdbDataFileReadTombBlock(writer->ctx->reader, tombBlk, writer->ctx->tombBlock);
@@ -1256,7 +1253,6 @@ static int32_t tsdbDataFileDoWriteTombRecord(SDataFileWriter *writer, const STom
 
       writer->ctx->tombBlockIdx = 0;
       writer->ctx->tombBlkArrayIdx++;
-      break;
     }
   }
 
@@ -1265,6 +1261,11 @@ _write:
 
   code = tTombBlockPut(writer->tombBlock, record);
   TSDB_CHECK_CODE(code, lino, _exit);
+
+  tsdbTrace("vgId:%d write tomb record to tomb file:%s, cid:%" PRId64 ", suid:%" PRId64 ", uid:%" PRId64
+            ", version:%" PRId64,
+            TD_VID(writer->config->tsdb->pVnode), writer->fd[TSDB_FTYPE_TOMB]->path, writer->config->cid, record->suid,
+            record->uid, record->version);
 
   if (TOMB_BLOCK_SIZE(writer->tombBlock) >= writer->config->maxRow) {
     code = tsdbDataFileDoWriteTombBlock(writer);
@@ -1465,7 +1466,7 @@ static int32_t tsdbDataFileWriterOpenDataFD(SDataFileWriter *writer) {
     }
 
     tsdbTFileName(writer->config->tsdb, &writer->files[ftype], fname);
-    code = tsdbOpenFile(fname, writer->config->szPage, flag, &writer->fd[ftype]);
+    code = tsdbOpenFile(fname, writer->config->tsdb, flag, &writer->fd[ftype]);
     TSDB_CHECK_CODE(code, lino, _exit);
 
     if (writer->files[ftype].size == 0) {
@@ -1633,7 +1634,7 @@ static int32_t tsdbDataFileWriterOpenTombFD(SDataFileWriter *writer) {
   int32_t flag = (TD_FILE_READ | TD_FILE_WRITE | TD_FILE_CREATE | TD_FILE_TRUNC);
 
   tsdbTFileName(writer->config->tsdb, writer->files + ftype, fname);
-  code = tsdbOpenFile(fname, writer->config->szPage, flag, &writer->fd[ftype]);
+  code = tsdbOpenFile(fname, writer->config->tsdb, flag, &writer->fd[ftype]);
   TSDB_CHECK_CODE(code, lino, _exit);
 
   uint8_t hdr[TSDB_FHDR_SIZE] = {0};

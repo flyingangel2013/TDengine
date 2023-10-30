@@ -42,6 +42,7 @@ static SKeyword keywordTable[] = {
     {"ASC",                  TK_ASC},
     {"AT_ONCE",              TK_AT_ONCE},
     {"BALANCE",              TK_BALANCE},
+    {"BATCH_SCAN",           TK_BATCH_SCAN},
     {"BETWEEN",              TK_BETWEEN},
     {"BIGINT",               TK_BIGINT},
     {"BINARY",               TK_BINARY},
@@ -56,6 +57,7 @@ static SKeyword keywordTable[] = {
     {"CACHESIZE",            TK_CACHESIZE},
     {"CASE",                 TK_CASE},
     {"CAST",                 TK_CAST},
+    {"CHILD",                TK_CHILD},
     {"CLIENT_VERSION",       TK_CLIENT_VERSION},
     {"CLUSTER",              TK_CLUSTER},
     {"COLUMN",               TK_COLUMN},
@@ -108,6 +110,7 @@ static SKeyword keywordTable[] = {
     {"GRANTS",               TK_GRANTS},
     {"GROUP",                TK_GROUP},
     {"HAVING",               TK_HAVING},
+    {"HOST",                 TK_HOST},
     {"IF",                   TK_IF},
     {"IGNORE",               TK_IGNORE},
     {"IMPORT",               TK_IMPORT},
@@ -137,7 +140,7 @@ static SKeyword keywordTable[] = {
     {"MATCH",                TK_MATCH},
     {"MAXROWS",              TK_MAXROWS},
     {"MAX_DELAY",            TK_MAX_DELAY},
-    {"MAX_SPEED",            TK_MAX_SPEED},
+    {"BWLIMIT",              TK_BWLIMIT},
     {"MERGE",                TK_MERGE},
     {"META",                 TK_META},
     {"ONLY",                 TK_ONLY},
@@ -147,12 +150,14 @@ static SKeyword keywordTable[] = {
     {"MNODES",               TK_MNODES},
     {"MODIFY",               TK_MODIFY},
     {"MODULES",              TK_MODULES},
+    {"NORMAL",               TK_NORMAL},
     {"NCHAR",                TK_NCHAR},
     {"NEXT",                 TK_NEXT},
     {"NMATCH",               TK_NMATCH},
     {"NONE",                 TK_NONE},
     {"NOT",                  TK_NOT},
     {"NOW",                  TK_NOW},
+    {"NO_BATCH_SCAN",        TK_NO_BATCH_SCAN},
     {"NULL",                 TK_NULL},
     {"NULL_F",               TK_NULL_F},
     {"NULLS",                TK_NULLS},
@@ -204,6 +209,7 @@ static SKeyword keywordTable[] = {
     {"SMALLINT",             TK_SMALLINT},
     {"SNODE",                TK_SNODE},
     {"SNODES",               TK_SNODES},
+    {"SORT_FOR_GROUP",       TK_SORT_FOR_GROUP},
     {"SOFFSET",              TK_SOFFSET},
     {"SPLIT",                TK_SPLIT},
     {"STABLE",               TK_STABLE},
@@ -220,6 +226,7 @@ static SKeyword keywordTable[] = {
     {"SUBSCRIPTIONS",        TK_SUBSCRIPTIONS},
     {"SUBTABLE",             TK_SUBTABLE},
     {"SYSINFO",              TK_SYSINFO},
+    {"SYSTEM",               TK_SYSTEM},
     {"TABLE",                TK_TABLE},
     {"TABLES",               TK_TABLES},
     {"TABLE_PREFIX",         TK_TABLE_PREFIX},
@@ -285,6 +292,8 @@ static SKeyword keywordTable[] = {
     {"_WEND",                TK_WEND},
     {"_WSTART",              TK_WSTART},
     {"ALIVE",                TK_ALIVE},
+    {"VARBINARY",            TK_VARBINARY},
+    {"KEEP_TIME_OFFSET",     TK_KEEP_TIME_OFFSET},
 };
 // clang-format on
 
@@ -398,10 +407,14 @@ uint32_t tGetToken(const char* z, uint32_t* tokenId) {
         *tokenId = TK_NK_SLASH;
         return 1;
       }
+      bool isHint = false;
+      if (z[2] == '+') {
+        isHint = true;
+      }
       for (i = 3; z[i] && (z[i] != '/' || z[i - 1] != '*'); i++) {
       }
       if (z[i]) i++;
-      *tokenId = TK_NK_COMMENT;
+      *tokenId = isHint ? TK_NK_HINT : TK_NK_COMMENT;
       return i;
     }
     case '%': {
@@ -544,7 +557,7 @@ uint32_t tGetToken(const char* z, uint32_t* tokenId) {
         return i;
       } else if (next == 'x') {  // hex number
         *tokenId = TK_NK_HEX;
-        for (i = 2; isdigit(z[i]) || (z[i] >= 'a' && z[i] <= 'f') || (z[i] >= 'A' && z[i] <= 'F'); ++i) {
+        for (i = 2; isxdigit(z[i]) != 0; ++i) {
         }
 
         if (i == 2) {

@@ -33,7 +33,7 @@
 
 static int64_t adjustExpEntries(int64_t entries) { return TMIN(DEFAULT_EXPECTED_ENTRIES, entries); }
 
-static void windowSBfAdd(SUpdateInfo *pInfo, uint64_t count) {
+void windowSBfAdd(SUpdateInfo *pInfo, uint64_t count) {
   if (pInfo->numSBFs < count) {
     count = pInfo->numSBFs;
   }
@@ -49,7 +49,7 @@ static void clearItemHelper(void *p) {
   tScalableBfDestroy(*pBf);
 }
 
-static void windowSBfDelete(SUpdateInfo *pInfo, uint64_t count) {
+void windowSBfDelete(SUpdateInfo *pInfo, uint64_t count) {
   if (count < pInfo->numSBFs) {
     for (uint64_t i = 0; i < count; ++i) {
       SScalableBf *pTsSBFs = taosArrayGetP(pInfo->pTsSBFs, 0);
@@ -89,11 +89,11 @@ static int64_t adjustWatermark(int64_t adjInterval, int64_t originInt, int64_t w
   return watermark;
 }
 
-SUpdateInfo *updateInfoInitP(SInterval *pInterval, int64_t watermark) {
-  return updateInfoInit(pInterval->interval, pInterval->precision, watermark);
+SUpdateInfo *updateInfoInitP(SInterval *pInterval, int64_t watermark, bool igUp) {
+  return updateInfoInit(pInterval->interval, pInterval->precision, watermark, igUp);
 }
 
-SUpdateInfo *updateInfoInit(int64_t interval, int32_t precision, int64_t watermark) {
+SUpdateInfo *updateInfoInit(int64_t interval, int32_t precision, int64_t watermark, bool igUp) {
   SUpdateInfo *pInfo = taosMemoryCalloc(1, sizeof(SUpdateInfo));
   if (pInfo == NULL) {
     return NULL;
@@ -103,31 +103,35 @@ SUpdateInfo *updateInfoInit(int64_t interval, int32_t precision, int64_t waterma
   pInfo->minTS = -1;
   pInfo->interval = adjustInterval(interval, precision);
   pInfo->watermark = adjustWatermark(pInfo->interval, interval, watermark);
+  pInfo->numSBFs = 0;
 
-  uint64_t bfSize = (uint64_t)(pInfo->watermark / pInfo->interval);
+  uint64_t bfSize = 0;
+  if (!igUp) {
+    bfSize = (uint64_t)(pInfo->watermark / pInfo->interval);
+    pInfo->numSBFs = bfSize;
 
-  pInfo->pTsSBFs = taosArrayInit(bfSize, sizeof(void *));
-  if (pInfo->pTsSBFs == NULL) {
-    updateInfoDestroy(pInfo);
-    return NULL;
+    pInfo->pTsSBFs = taosArrayInit(bfSize, sizeof(void *));
+    if (pInfo->pTsSBFs == NULL) {
+      updateInfoDestroy(pInfo);
+      return NULL;
+    }
+    windowSBfAdd(pInfo, bfSize);
+
+    pInfo->pTsBuckets = taosArrayInit(DEFAULT_BUCKET_SIZE, sizeof(TSKEY));
+    if (pInfo->pTsBuckets == NULL) {
+      updateInfoDestroy(pInfo);
+      return NULL;
+    }
+
+    TSKEY dumy = 0;
+    for (uint64_t i = 0; i < DEFAULT_BUCKET_SIZE; ++i) {
+      taosArrayPush(pInfo->pTsBuckets, &dumy);
+    }
+    pInfo->numBuckets = DEFAULT_BUCKET_SIZE;
+    pInfo->pCloseWinSBF = NULL;
+    _hash_fn_t hashFn = taosGetDefaultHashFunction(TSDB_DATA_TYPE_UBIGINT);
+    pInfo->pMap = taosHashInit(DEFAULT_MAP_CAPACITY, hashFn, true, HASH_NO_LOCK);
   }
-  pInfo->numSBFs = bfSize;
-  windowSBfAdd(pInfo, bfSize);
-
-  pInfo->pTsBuckets = taosArrayInit(DEFAULT_BUCKET_SIZE, sizeof(TSKEY));
-  if (pInfo->pTsBuckets == NULL) {
-    updateInfoDestroy(pInfo);
-    return NULL;
-  }
-
-  TSKEY dumy = 0;
-  for (uint64_t i = 0; i < DEFAULT_BUCKET_SIZE; ++i) {
-    taosArrayPush(pInfo->pTsBuckets, &dumy);
-  }
-  pInfo->numBuckets = DEFAULT_BUCKET_SIZE;
-  pInfo->pCloseWinSBF = NULL;
-  _hash_fn_t hashFn = taosGetDefaultHashFunction(TSDB_DATA_TYPE_UBIGINT);
-  pInfo->pMap = taosHashInit(DEFAULT_MAP_CAPACITY, hashFn, true, HASH_NO_LOCK);
   pInfo->maxDataVersion = 0;
   return pInfo;
 }

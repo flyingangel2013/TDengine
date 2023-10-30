@@ -44,9 +44,11 @@ typedef struct {
   int64_t                            defaultCfInit;
 } SBackendWrapper;
 
-void*      streamBackendInit(const char* path);
+void*      streamBackendInit(const char* path, int64_t chkpId);
 void       streamBackendCleanup(void* arg);
 void       streamBackendHandleCleanup(void* arg);
+int32_t    streamBackendLoadCheckpointInfo(void* pMeta);
+int32_t    streamBackendDoCheckpoint(void* pMeta, uint64_t checkpointId);
 SListNode* streamBackendAddCompare(void* backend, void* arg);
 void       streamBackendDelCompare(void* backend, void* arg);
 
@@ -63,11 +65,11 @@ int32_t streamStateCurNext_rocksdb(SStreamState* pState, SStreamStateCur* pCur);
 int32_t streamStateGetFirst_rocksdb(SStreamState* pState, SWinKey* key);
 int32_t streamStateGetGroupKVByCur_rocksdb(SStreamStateCur* pCur, SWinKey* pKey, const void** pVal, int32_t* pVLen);
 int32_t streamStateAddIfNotExist_rocksdb(SStreamState* pState, const SWinKey* key, void** pVal, int32_t* pVLen);
-int32_t streamStateCurPrev_rocksdb(SStreamState* pState, SStreamStateCur* pCur);
+int32_t streamStateCurPrev_rocksdb(SStreamStateCur* pCur);
 int32_t streamStateGetKVByCur_rocksdb(SStreamStateCur* pCur, SWinKey* pKey, const void** pVal, int32_t* pVLen);
 SStreamStateCur* streamStateGetAndCheckCur_rocksdb(SStreamState* pState, SWinKey* key);
 SStreamStateCur* streamStateSeekKeyNext_rocksdb(SStreamState* pState, const SWinKey* key);
-SStreamStateCur* streamStateSeekToLast_rocksdb(SStreamState* pState, const SWinKey* key);
+SStreamStateCur* streamStateSeekToLast_rocksdb(SStreamState* pState);
 SStreamStateCur* streamStateGetCur_rocksdb(SStreamState* pState, const SWinKey* key);
 
 // func cf
@@ -82,10 +84,14 @@ int32_t streamStateSessionDel_rocksdb(SStreamState* pState, const SSessionKey* k
 SStreamStateCur* streamStateSessionSeekKeyCurrentPrev_rocksdb(SStreamState* pState, const SSessionKey* key);
 SStreamStateCur* streamStateSessionSeekKeyCurrentNext_rocksdb(SStreamState* pState, SSessionKey* key);
 SStreamStateCur* streamStateSessionSeekKeyNext_rocksdb(SStreamState* pState, const SSessionKey* key);
+SStreamStateCur* streamStateSessionSeekToLast_rocksdb(SStreamState* pState);
+int32_t          streamStateSessionCurPrev_rocksdb(SStreamStateCur* pCur);
+
 int32_t streamStateSessionGetKVByCur_rocksdb(SStreamStateCur* pCur, SSessionKey* pKey, void** pVal, int32_t* pVLen);
 int32_t streamStateSessionGetKeyByRange_rocksdb(SStreamState* pState, const SSessionKey* key, SSessionKey* curKey);
 int32_t streamStateSessionAddIfNotExist_rocksdb(SStreamState* pState, SSessionKey* key, TSKEY gap, void** pVal,
                                                 int32_t* pVLen);
+
 int32_t streamStateSessionClear_rocksdb(SStreamState* pState);
 
 int32_t streamStateStateAddIfNotExist_rocksdb(SStreamState* pState, SSessionKey* key, char* pKeyData,
@@ -135,5 +141,10 @@ int32_t streamStatePutBatchOptimize(SStreamState* pState, int32_t cfIdx, rocksdb
                                     void* val, int32_t vlen, int64_t ttl, void* tmpBuf);
 
 int32_t streamStatePutBatch_rocksdb(SStreamState* pState, void* pBatch);
+int32_t streamBackendTriggerChkp(void* pMeta, char* dst);
+
+int32_t streamBackendAddInUseChkp(void* arg, int64_t chkpId);
+int32_t streamBackendDelInUseChkp(void* arg, int64_t chkpId);
+
 // int32_t streamDefaultIter_rocksdb(SStreamState* pState, const void* start, const void* end, SArray* result);
 #endif

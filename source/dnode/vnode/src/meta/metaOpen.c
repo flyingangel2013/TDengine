@@ -130,7 +130,7 @@ int metaOpen(SVnode *pVnode, SMeta **ppMeta, int8_t rollback) {
   // open pTtlMgr ("ttlv1.idx")
   char logPrefix[128] = {0};
   sprintf(logPrefix, "vgId:%d", TD_VID(pVnode));
-  ret = ttlMgrOpen(&pMeta->pTtlMgr, pMeta->pEnv, 0, logPrefix);
+  ret = ttlMgrOpen(&pMeta->pTtlMgr, pMeta->pEnv, 0, logPrefix, tsTtlFlushThreshold);
   if (ret < 0) {
     metaError("vgId:%d, failed to open meta ttl index since %s", TD_VID(pVnode), tstrerror(terrno));
     goto _err;
@@ -173,6 +173,10 @@ int metaOpen(SVnode *pVnode, SMeta **ppMeta, int8_t rollback) {
   if (code) {
     terrno = code;
     metaError("vgId:%d, failed to open meta cache since %s", TD_VID(pVnode), tstrerror(terrno));
+    goto _err;
+  }
+
+  if (metaInitTbFilterCache(pMeta) != 0) {
     goto _err;
   }
 

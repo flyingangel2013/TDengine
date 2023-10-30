@@ -58,6 +58,7 @@ extern int32_t tsTagFilterResCacheSize;
 extern int32_t tsNumOfRpcThreads;
 extern int32_t tsNumOfRpcSessions;
 extern int32_t tsTimeToGetAvailableConn;
+extern int32_t tsKeepAliveIdle;
 extern int32_t tsNumOfCommitThreads;
 extern int32_t tsNumOfTaskQueueThreads;
 extern int32_t tsNumOfMnodeQueryThreads;
@@ -87,6 +88,7 @@ extern int64_t tsMndLogRetention;
 extern int8_t  tsGrant;
 extern int32_t tsMndGrantMode;
 extern bool    tsMndSkipGrant;
+extern bool    tsEnableWhiteList;
 
 // dnode
 extern int64_t tsDndStart;
@@ -100,6 +102,12 @@ extern char     tsMonitorFqdn[];
 extern uint16_t tsMonitorPort;
 extern int32_t  tsMonitorMaxLogs;
 extern bool     tsMonitorComp;
+
+// audit
+extern bool     tsEnableAudit;
+extern char     tsAuditFqdn[];
+extern uint16_t tsAuditPort;
+extern bool     tsEnableAuditCreateTable;
 
 // telem
 extern bool     tsEnableTelem;
@@ -129,6 +137,7 @@ extern bool    tsKeepColumnName;
 extern bool    tsEnableQueryHb;
 extern bool    tsEnableScience;
 extern bool    tsTtlChangeOnWrite;
+extern int32_t tsTtlFlushThreshold;
 extern int32_t tsRedirectPeriod;
 extern int32_t tsRedirectFactor;
 extern int32_t tsRedirectMaxPeriod;
@@ -137,6 +146,7 @@ extern bool    tsUseAdapter;
 extern int32_t tsMetaCacheMaxSize;
 extern int32_t tsSlowLogThreshold;
 extern int32_t tsSlowLogScope;
+extern int32_t tsTimeSeriesThreshold;
 
 // client
 extern int32_t tsMinSlidingTime;
@@ -151,15 +161,17 @@ extern char buildinfo[];
 
 // lossy
 extern char     tsLossyColumns[];
-extern double   tsFPrecision;
+extern float    tsFPrecision;
 extern double   tsDPrecision;
 extern uint32_t tsMaxRange;
 extern uint32_t tsCurRange;
+extern bool     tsIfAdtFse;
 extern char     tsCompressor[];
 
 // tfs
 extern int32_t  tsDiskCfgNum;
 extern SDiskCfg tsDiskCfg[];
+extern int64_t  tsMinDiskFreeSize;
 
 // udf
 extern bool tsStartUdfd;
@@ -169,6 +181,8 @@ extern char tsUdfdLdLibPath[];
 // schemaless
 extern char tsSmlChildTableName[];
 extern char tsSmlTagName[];
+extern bool tsSmlDot2Underline;
+extern char tsSmlTsDefaultName[];
 // extern bool    tsSmlDataFormat;
 // extern int32_t tsSmlBatchSize;
 
@@ -180,22 +194,22 @@ extern int64_t tsWalFsyncDataSizeLimit;
 // internal
 extern int32_t tsTransPullupInterval;
 extern int32_t tsMqRebalanceInterval;
-extern int32_t tsStreamCheckpointTickInterval;
+extern int32_t tsStreamCheckpointInterval;
+extern float   tsSinkDataRate;
+extern int32_t tsStreamNodeCheckInterval;
 extern int32_t tsTtlUnit;
-extern int32_t tsTtlPushInterval;
+extern int32_t tsTtlPushIntervalSec;
+extern int32_t tsTtlBatchDropNum;
+extern int32_t tsTrimVDbIntervalSec;
 extern int32_t tsGrantHBInterval;
 extern int32_t tsUptimeInterval;
 
-extern int32_t tsRpcRetryLimit;
-extern int32_t tsRpcRetryInterval;
-
 extern bool    tsDisableStream;
 extern int64_t tsStreamBufferSize;
-extern int64_t tsCheckpointInterval;
 extern bool    tsFilterScalarMode;
-extern int32_t tsKeepTimeOffset;
 extern int32_t tsMaxStreamBackendCache;
 extern int32_t tsPQSortMemThreshold;
+extern int32_t tsResolveFQDNRetryTime;
 
 // #define NEEDTO_COMPRESSS_MSG(size) (tsCompressMsgSize != -1 && (size) > tsCompressMsgSize)
 

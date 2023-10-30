@@ -12,7 +12,7 @@ sys.path.append("./7-tmq")
 from tmqCommon import *
 
 class TDTestCase:
-    updatecfgDict = {'debugFlag': 135}    
+    # updatecfgDict = {'debugFlag': 135}
     
     def __init__(self):
         self.vgroups    = 2
@@ -176,9 +176,7 @@ class TDTestCase:
         
         # use taosBenchmark to subscribe  
         binPath = self.getPath()
-        cmd = "nohup %s -f ./7-tmq/tmqDropConsumer.json > /dev/null 2>&1 & " % binPath
-        tdLog.info("%s"%(cmd))
-        os.system(cmd)
+        tmqCom.startProcess(binPath, "-f ./7-tmq/tmqDropConsumer.json")        
                 
         expectTopicNum = len(topicNameList)
         consumerThreadNum = 2
@@ -254,7 +252,6 @@ class TDTestCase:
                 break
         
         tdLog.info("all consumers status into 'lost'")
-        
         # drop consumer groups
         tdLog.info("drop all consumers")
         for i in range(len(groupIdList)): 

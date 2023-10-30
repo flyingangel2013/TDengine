@@ -118,7 +118,7 @@ echo "statusInterval         1"                  >> $TAOS_CFG
 echo "dataDir                $DATA_DIR"          >> $TAOS_CFG
 echo "logDir                 $LOG_DIR"           >> $TAOS_CFG
 echo "debugFlag              0"                  >> $TAOS_CFG
-echo "tmrDebugFlag           143"                >> $TAOS_CFG
+echo "tmrDebugFlag           131"                >> $TAOS_CFG
 echo "uDebugFlag             143"                >> $TAOS_CFG
 echo "rpcDebugFlag           143"                >> $TAOS_CFG
 echo "jniDebugFlag           143"                >> $TAOS_CFG
@@ -137,6 +137,7 @@ echo "idxDebugFlag           143"                >> $TAOS_CFG
 echo "udfDebugFlag           143"                >> $TAOS_CFG
 echo "smaDebugFlag           143"                >> $TAOS_CFG
 echo "metaDebugFlag          143"                >> $TAOS_CFG
+echo "stDebugFlag            143"                >> $TAOS_CFG
 echo "numOfLogLines          20000000"           >> $TAOS_CFG
 echo "asyncLog               0"                  >> $TAOS_CFG
 echo "locale                 en_US.UTF-8"        >> $TAOS_CFG

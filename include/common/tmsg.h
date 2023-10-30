@@ -77,7 +77,8 @@ static inline bool tmsgIsValid(tmsg_t type) {
 }
 static inline bool vnodeIsMsgBlock(tmsg_t type) {
   return (type == TDMT_VND_CREATE_TABLE) || (type == TDMT_VND_ALTER_TABLE) || (type == TDMT_VND_DROP_TABLE) ||
-         (type == TDMT_VND_UPDATE_TAG_VAL) || (type == TDMT_VND_ALTER_CONFIRM) || (type == TDMT_VND_COMMIT);
+         (type == TDMT_VND_UPDATE_TAG_VAL) || (type == TDMT_VND_ALTER_CONFIRM) || (type == TDMT_VND_COMMIT) ||
+         (type == TDMT_SYNC_CONFIG_CHANGE);
 }
 
 static inline bool syncUtilUserCommit(tmsg_t msgType) {
@@ -183,6 +184,8 @@ typedef enum _mgmt_table {
 #define TSDB_ALTER_USER_REMOVE_WRITE_TABLE     0x10
 #define TSDB_ALTER_USER_ADD_ALL_TABLE          0x11
 #define TSDB_ALTER_USER_REMOVE_ALL_TABLE       0x12
+#define TSDB_ALTER_USER_ADD_WHITE_LIST         0x13
+#define TSDB_ALTER_USER_DROP_WHITE_LIST        0x14
 
 #define TSDB_ALTER_USER_PRIVILEGES 0x2
 
@@ -211,6 +214,214 @@ typedef enum _mgmt_table {
 
 #define TD_REQ_FROM_APP  0
 #define TD_REQ_FROM_TAOX 1
+
+typedef enum ENodeType {
+  // Syntax nodes are used in parser and planner module, and some are also used in executor module, such as COLUMN,
+  // VALUE, OPERATOR, FUNCTION and so on.
+  QUERY_NODE_COLUMN = 1,
+  QUERY_NODE_VALUE,
+  QUERY_NODE_OPERATOR,
+  QUERY_NODE_LOGIC_CONDITION,
+  QUERY_NODE_FUNCTION,
+  QUERY_NODE_REAL_TABLE,
+  QUERY_NODE_TEMP_TABLE,
+  QUERY_NODE_JOIN_TABLE,
+  QUERY_NODE_GROUPING_SET,
+  QUERY_NODE_ORDER_BY_EXPR,
+  QUERY_NODE_LIMIT,
+  QUERY_NODE_STATE_WINDOW,
+  QUERY_NODE_SESSION_WINDOW,
+  QUERY_NODE_INTERVAL_WINDOW,
+  QUERY_NODE_NODE_LIST,
+  QUERY_NODE_FILL,
+  QUERY_NODE_RAW_EXPR,  // Only be used in parser module.
+  QUERY_NODE_TARGET,
+  QUERY_NODE_DATABLOCK_DESC,
+  QUERY_NODE_SLOT_DESC,
+  QUERY_NODE_COLUMN_DEF,
+  QUERY_NODE_DOWNSTREAM_SOURCE,
+  QUERY_NODE_DATABASE_OPTIONS,
+  QUERY_NODE_TABLE_OPTIONS,
+  QUERY_NODE_INDEX_OPTIONS,
+  QUERY_NODE_EXPLAIN_OPTIONS,
+  QUERY_NODE_STREAM_OPTIONS,
+  QUERY_NODE_LEFT_VALUE,
+  QUERY_NODE_COLUMN_REF,
+  QUERY_NODE_WHEN_THEN,
+  QUERY_NODE_CASE_WHEN,
+  QUERY_NODE_EVENT_WINDOW,
+  QUERY_NODE_HINT,
+
+  // Statement nodes are used in parser and planner module.
+  QUERY_NODE_SET_OPERATOR = 100,
+  QUERY_NODE_SELECT_STMT,
+  QUERY_NODE_VNODE_MODIFY_STMT,
+  QUERY_NODE_CREATE_DATABASE_STMT,
+  QUERY_NODE_DROP_DATABASE_STMT,
+  QUERY_NODE_ALTER_DATABASE_STMT,
+  QUERY_NODE_FLUSH_DATABASE_STMT,
+  QUERY_NODE_TRIM_DATABASE_STMT,
+  QUERY_NODE_CREATE_TABLE_STMT,
+  QUERY_NODE_CREATE_SUBTABLE_CLAUSE,
+  QUERY_NODE_CREATE_MULTI_TABLES_STMT,
+  QUERY_NODE_DROP_TABLE_CLAUSE,
+  QUERY_NODE_DROP_TABLE_STMT,
+  QUERY_NODE_DROP_SUPER_TABLE_STMT,
+  QUERY_NODE_ALTER_TABLE_STMT,
+  QUERY_NODE_ALTER_SUPER_TABLE_STMT,
+  QUERY_NODE_CREATE_USER_STMT,
+  QUERY_NODE_ALTER_USER_STMT,
+  QUERY_NODE_DROP_USER_STMT,
+  QUERY_NODE_USE_DATABASE_STMT,
+  QUERY_NODE_CREATE_DNODE_STMT,
+  QUERY_NODE_DROP_DNODE_STMT,
+  QUERY_NODE_ALTER_DNODE_STMT,
+  QUERY_NODE_CREATE_INDEX_STMT,
+  QUERY_NODE_DROP_INDEX_STMT,
+  QUERY_NODE_CREATE_QNODE_STMT,
+  QUERY_NODE_DROP_QNODE_STMT,
+  QUERY_NODE_CREATE_BNODE_STMT,
+  QUERY_NODE_DROP_BNODE_STMT,
+  QUERY_NODE_CREATE_SNODE_STMT,
+  QUERY_NODE_DROP_SNODE_STMT,
+  QUERY_NODE_CREATE_MNODE_STMT,
+  QUERY_NODE_DROP_MNODE_STMT,
+  QUERY_NODE_CREATE_TOPIC_STMT,
+  QUERY_NODE_DROP_TOPIC_STMT,
+  QUERY_NODE_DROP_CGROUP_STMT,
+  QUERY_NODE_ALTER_LOCAL_STMT,
+  QUERY_NODE_EXPLAIN_STMT,
+  QUERY_NODE_DESCRIBE_STMT,
+  QUERY_NODE_RESET_QUERY_CACHE_STMT,
+  QUERY_NODE_COMPACT_DATABASE_STMT,
+  QUERY_NODE_CREATE_FUNCTION_STMT,
+  QUERY_NODE_DROP_FUNCTION_STMT,
+  QUERY_NODE_CREATE_STREAM_STMT,
+  QUERY_NODE_DROP_STREAM_STMT,
+  QUERY_NODE_BALANCE_VGROUP_STMT,
+  QUERY_NODE_MERGE_VGROUP_STMT,
+  QUERY_NODE_REDISTRIBUTE_VGROUP_STMT,
+  QUERY_NODE_SPLIT_VGROUP_STMT,
+  QUERY_NODE_SYNCDB_STMT,
+  QUERY_NODE_GRANT_STMT,
+  QUERY_NODE_REVOKE_STMT,
+  QUERY_NODE_SHOW_DNODES_STMT,
+  QUERY_NODE_SHOW_MNODES_STMT,
+  QUERY_NODE_SHOW_MODULES_STMT,
+  QUERY_NODE_SHOW_QNODES_STMT,
+  QUERY_NODE_SHOW_SNODES_STMT,
+  QUERY_NODE_SHOW_BNODES_STMT,
+  QUERY_NODE_SHOW_CLUSTER_STMT,
+  QUERY_NODE_SHOW_DATABASES_STMT,
+  QUERY_NODE_SHOW_FUNCTIONS_STMT,
+  QUERY_NODE_SHOW_INDEXES_STMT,
+  QUERY_NODE_SHOW_STABLES_STMT,
+  QUERY_NODE_SHOW_STREAMS_STMT,
+  QUERY_NODE_SHOW_TABLES_STMT,
+  QUERY_NODE_SHOW_TAGS_STMT,
+  QUERY_NODE_SHOW_USERS_STMT,
+  QUERY_NODE_SHOW_LICENCES_STMT,
+  QUERY_NODE_SHOW_VGROUPS_STMT,
+  QUERY_NODE_SHOW_TOPICS_STMT,
+  QUERY_NODE_SHOW_CONSUMERS_STMT,
+  QUERY_NODE_SHOW_CONNECTIONS_STMT,
+  QUERY_NODE_SHOW_QUERIES_STMT,
+  QUERY_NODE_SHOW_APPS_STMT,
+  QUERY_NODE_SHOW_VARIABLES_STMT,
+  QUERY_NODE_SHOW_DNODE_VARIABLES_STMT,
+  QUERY_NODE_SHOW_TRANSACTIONS_STMT,
+  QUERY_NODE_SHOW_SUBSCRIPTIONS_STMT,
+  QUERY_NODE_SHOW_VNODES_STMT,
+  QUERY_NODE_SHOW_USER_PRIVILEGES_STMT,
+  QUERY_NODE_SHOW_CREATE_DATABASE_STMT,
+  QUERY_NODE_SHOW_CREATE_TABLE_STMT,
+  QUERY_NODE_SHOW_CREATE_STABLE_STMT,
+  QUERY_NODE_SHOW_TABLE_DISTRIBUTED_STMT,
+  QUERY_NODE_SHOW_LOCAL_VARIABLES_STMT,
+  QUERY_NODE_SHOW_SCORES_STMT,
+  QUERY_NODE_SHOW_TABLE_TAGS_STMT,
+  QUERY_NODE_KILL_CONNECTION_STMT,
+  QUERY_NODE_KILL_QUERY_STMT,
+  QUERY_NODE_KILL_TRANSACTION_STMT,
+  QUERY_NODE_DELETE_STMT,
+  QUERY_NODE_INSERT_STMT,
+  QUERY_NODE_QUERY,
+  QUERY_NODE_SHOW_DB_ALIVE_STMT,
+  QUERY_NODE_SHOW_CLUSTER_ALIVE_STMT,
+  QUERY_NODE_BALANCE_VGROUP_LEADER_STMT,
+  QUERY_NODE_RESTORE_DNODE_STMT,
+  QUERY_NODE_RESTORE_QNODE_STMT,
+  QUERY_NODE_RESTORE_MNODE_STMT,
+  QUERY_NODE_RESTORE_VNODE_STMT,
+  QUERY_NODE_PAUSE_STREAM_STMT,
+  QUERY_NODE_RESUME_STREAM_STMT,
+
+  // logic plan node
+  QUERY_NODE_LOGIC_PLAN_SCAN = 1000,
+  QUERY_NODE_LOGIC_PLAN_JOIN,
+  QUERY_NODE_LOGIC_PLAN_AGG,
+  QUERY_NODE_LOGIC_PLAN_PROJECT,
+  QUERY_NODE_LOGIC_PLAN_VNODE_MODIFY,
+  QUERY_NODE_LOGIC_PLAN_EXCHANGE,
+  QUERY_NODE_LOGIC_PLAN_MERGE,
+  QUERY_NODE_LOGIC_PLAN_WINDOW,
+  QUERY_NODE_LOGIC_PLAN_FILL,
+  QUERY_NODE_LOGIC_PLAN_SORT,
+  QUERY_NODE_LOGIC_PLAN_PARTITION,
+  QUERY_NODE_LOGIC_PLAN_INDEF_ROWS_FUNC,
+  QUERY_NODE_LOGIC_PLAN_INTERP_FUNC,
+  QUERY_NODE_LOGIC_SUBPLAN,
+  QUERY_NODE_LOGIC_PLAN,
+  QUERY_NODE_LOGIC_PLAN_GROUP_CACHE,
+  QUERY_NODE_LOGIC_PLAN_DYN_QUERY_CTRL,
+
+  // physical plan node
+  QUERY_NODE_PHYSICAL_PLAN_TAG_SCAN = 1100,
+  QUERY_NODE_PHYSICAL_PLAN_TABLE_SCAN,
+  QUERY_NODE_PHYSICAL_PLAN_TABLE_SEQ_SCAN,
+  QUERY_NODE_PHYSICAL_PLAN_TABLE_MERGE_SCAN,
+  QUERY_NODE_PHYSICAL_PLAN_STREAM_SCAN,
+  QUERY_NODE_PHYSICAL_PLAN_SYSTABLE_SCAN,
+  QUERY_NODE_PHYSICAL_PLAN_BLOCK_DIST_SCAN,
+  QUERY_NODE_PHYSICAL_PLAN_LAST_ROW_SCAN,
+  QUERY_NODE_PHYSICAL_PLAN_PROJECT,
+  QUERY_NODE_PHYSICAL_PLAN_MERGE_JOIN,
+  QUERY_NODE_PHYSICAL_PLAN_HASH_AGG,
+  QUERY_NODE_PHYSICAL_PLAN_EXCHANGE,
+  QUERY_NODE_PHYSICAL_PLAN_MERGE,
+  QUERY_NODE_PHYSICAL_PLAN_SORT,
+  QUERY_NODE_PHYSICAL_PLAN_GROUP_SORT,
+  QUERY_NODE_PHYSICAL_PLAN_HASH_INTERVAL,
+  QUERY_NODE_PHYSICAL_PLAN_MERGE_INTERVAL,
+  QUERY_NODE_PHYSICAL_PLAN_MERGE_ALIGNED_INTERVAL,
+  QUERY_NODE_PHYSICAL_PLAN_STREAM_INTERVAL,
+  QUERY_NODE_PHYSICAL_PLAN_STREAM_FINAL_INTERVAL,
+  QUERY_NODE_PHYSICAL_PLAN_STREAM_SEMI_INTERVAL,
+  QUERY_NODE_PHYSICAL_PLAN_FILL,
+  QUERY_NODE_PHYSICAL_PLAN_STREAM_FILL,
+  QUERY_NODE_PHYSICAL_PLAN_MERGE_SESSION,
+  QUERY_NODE_PHYSICAL_PLAN_STREAM_SESSION,
+  QUERY_NODE_PHYSICAL_PLAN_STREAM_SEMI_SESSION,
+  QUERY_NODE_PHYSICAL_PLAN_STREAM_FINAL_SESSION,
+  QUERY_NODE_PHYSICAL_PLAN_MERGE_STATE,
+  QUERY_NODE_PHYSICAL_PLAN_STREAM_STATE,
+  QUERY_NODE_PHYSICAL_PLAN_PARTITION,
+  QUERY_NODE_PHYSICAL_PLAN_STREAM_PARTITION,
+  QUERY_NODE_PHYSICAL_PLAN_INDEF_ROWS_FUNC,
+  QUERY_NODE_PHYSICAL_PLAN_INTERP_FUNC,
+  QUERY_NODE_PHYSICAL_PLAN_DISPATCH,
+  QUERY_NODE_PHYSICAL_PLAN_INSERT,
+  QUERY_NODE_PHYSICAL_PLAN_QUERY_INSERT,
+  QUERY_NODE_PHYSICAL_PLAN_DELETE,
+  QUERY_NODE_PHYSICAL_SUBPLAN,
+  QUERY_NODE_PHYSICAL_PLAN,
+  QUERY_NODE_PHYSICAL_PLAN_TABLE_COUNT_SCAN,
+  QUERY_NODE_PHYSICAL_PLAN_MERGE_EVENT,
+  QUERY_NODE_PHYSICAL_PLAN_STREAM_EVENT,
+  QUERY_NODE_PHYSICAL_PLAN_HASH_JOIN,
+  QUERY_NODE_PHYSICAL_PLAN_GROUP_CACHE,
+  QUERY_NODE_PHYSICAL_PLAN_DYN_QUERY_CTRL
+} ENodeType;
 
 typedef struct {
   int32_t vgId;
@@ -557,6 +768,8 @@ typedef struct {
   char*    pAst2;
   int64_t  deleteMark1;
   int64_t  deleteMark2;
+  int32_t  sqlLen;
+  char*    sql;
 } SMCreateStbReq;
 
 int32_t tSerializeSMCreateStbReq(void* buf, int32_t bufLen, SMCreateStbReq* pReq);
@@ -577,10 +790,13 @@ typedef struct {
   int8_t   source;  // 1-taosX or 0-taosClient
   int8_t   reserved[6];
   tb_uid_t suid;
+  int32_t  sqlLen;
+  char*    sql;
 } SMDropStbReq;
 
 int32_t tSerializeSMDropStbReq(void* buf, int32_t bufLen, SMDropStbReq* pReq);
 int32_t tDeserializeSMDropStbReq(void* buf, int32_t bufLen, SMDropStbReq* pReq);
+void    tFreeSMDropStbReq(SMDropStbReq *pReq);
 
 typedef struct {
   char    name[TSDB_TABLE_FNAME_LEN];
@@ -590,6 +806,8 @@ typedef struct {
   int32_t ttl;
   int32_t commentLen;
   char*   comment;
+  int32_t sqlLen;
+  char*   sql;
 } SMAlterStbReq;
 
 int32_t tSerializeSMAlterStbReq(void* buf, int32_t bufLen, SMAlterStbReq* pReq);
@@ -638,6 +856,7 @@ typedef struct {
   int32_t  authVer;
   char     sVer[TSDB_VERSION_LEN];
   char     sDetailVer[128];
+  int64_t  whiteListVer;
 } SConnectRsp;
 
 int32_t tSerializeSConnectRsp(void* buf, int32_t bufLen, SConnectRsp* pRsp);
@@ -659,11 +878,25 @@ int32_t tDeserializeSCreateAcctReq(void* buf, int32_t bufLen, SCreateAcctReq* pR
 
 typedef struct {
   char user[TSDB_USER_LEN];
+  int32_t sqlLen;
+  char*   sql;
 } SDropUserReq, SDropAcctReq;
 
 int32_t tSerializeSDropUserReq(void* buf, int32_t bufLen, SDropUserReq* pReq);
 int32_t tDeserializeSDropUserReq(void* buf, int32_t bufLen, SDropUserReq* pReq);
+void    tFreeSDropUserReq(SDropUserReq *pReq);
 
+typedef struct SIpV4Range{
+    uint32_t ip;
+    uint32_t mask;
+} SIpV4Range;
+
+typedef struct {
+  int32_t    num;
+  SIpV4Range pIpRange[];
+} SIpWhiteList;
+
+SIpWhiteList* cloneIpWhiteList(SIpWhiteList* pIpWhiteList);
 typedef struct {
   int8_t createType;
   int8_t superUser;  // denote if it is a super user or not
@@ -671,10 +904,39 @@ typedef struct {
   int8_t enable;
   char   user[TSDB_USER_LEN];
   char   pass[TSDB_USET_PASSWORD_LEN];
+  int32_t     numIpRanges;
+  SIpV4Range* pIpRanges;
+  int32_t sqlLen;
+  char*   sql;
 } SCreateUserReq;
 
 int32_t tSerializeSCreateUserReq(void* buf, int32_t bufLen, SCreateUserReq* pReq);
 int32_t tDeserializeSCreateUserReq(void* buf, int32_t bufLen, SCreateUserReq* pReq);
+void    tFreeSCreateUserReq(SCreateUserReq *pReq);
+
+typedef struct {
+  int64_t     ver;
+  char        user[TSDB_USER_LEN];
+  int32_t     numOfRange;
+  SIpV4Range* pIpRanges;
+} SUpdateUserIpWhite;
+typedef struct {
+  int64_t             ver;
+  int                 numOfUser;
+  SUpdateUserIpWhite* pUserIpWhite;
+} SUpdateIpWhite;
+
+int32_t         tSerializeSUpdateIpWhite(void* buf, int32_t bufLen, SUpdateIpWhite* pReq);
+int32_t         tDeserializeSUpdateIpWhite(void* buf, int32_t bufLen, SUpdateIpWhite* pReq);
+void            tFreeSUpdateIpWhiteReq(SUpdateIpWhite* pReq);
+SUpdateIpWhite* cloneSUpdateIpWhiteReq(SUpdateIpWhite* pReq);
+
+typedef struct {
+  int64_t ipWhiteVer;
+} SRetrieveIpWhiteReq;
+
+int32_t tSerializeRetrieveIpWhite(void* buf, int32_t bufLen, SRetrieveIpWhiteReq* pReq);
+int32_t tDeserializeRetrieveIpWhite(void* buf, int32_t bufLen, SRetrieveIpWhiteReq* pReq);
 
 typedef struct {
   int8_t  alterType;
@@ -687,6 +949,10 @@ typedef struct {
   char    tabName[TSDB_TABLE_NAME_LEN];
   char*   tagCond;
   int32_t tagCondLen;
+  int32_t     numIpRanges;
+  SIpV4Range* pIpRanges;
+  int32_t sqlLen;
+  char*   sql;
 } SAlterUserReq;
 
 int32_t tSerializeSAlterUserReq(void* buf, int32_t bufLen, SAlterUserReq* pReq);
@@ -707,18 +973,36 @@ typedef struct {
   int8_t    superAuth;
   int8_t    sysInfo;
   int8_t    enable;
-  int8_t    reserve;
+  int8_t    dropped;
   SHashObj* createdDbs;
   SHashObj* readDbs;
   SHashObj* writeDbs;
   SHashObj* readTbs;
   SHashObj* writeTbs;
   SHashObj* useDbs;
+  int64_t whiteListVer;
 } SGetUserAuthRsp;
 
 int32_t tSerializeSGetUserAuthRsp(void* buf, int32_t bufLen, SGetUserAuthRsp* pRsp);
 int32_t tDeserializeSGetUserAuthRsp(void* buf, int32_t bufLen, SGetUserAuthRsp* pRsp);
 void    tFreeSGetUserAuthRsp(SGetUserAuthRsp* pRsp);
+
+typedef struct {
+  char user[TSDB_USER_LEN];
+} SGetUserWhiteListReq;
+
+int32_t tSerializeSGetUserWhiteListReq(void* buf, int32_t bufLen, SGetUserWhiteListReq* pReq);
+int32_t tDeserializeSGetUserWhiteListReq(void* buf, int32_t bufLen, SGetUserWhiteListReq* pReq);
+
+typedef struct {
+  char user[TSDB_USER_LEN];
+  int32_t numWhiteLists;
+  SIpV4Range* pWhiteLists;
+} SGetUserWhiteListRsp;
+
+int32_t tSerializeSGetUserWhiteListRsp(void* buf, int32_t bufLen, SGetUserWhiteListRsp* pRsp);
+int32_t tDeserializeSGetUserWhiteListRsp(void* buf, int32_t bufLen, SGetUserWhiteListRsp* pRsp);
+void    tFreeSGetUserWhiteListRsp(SGetUserWhiteListRsp* pRsp);
 
 /*
  * for client side struct, only column id, type, bytes are necessary
@@ -741,6 +1025,10 @@ typedef struct STimeWindow {
   TSKEY ekey;
 } STimeWindow;
 
+typedef struct SQueryHint {
+  bool batchScan;
+} SQueryHint;
+
 typedef struct {
   int32_t tsOffset;       // offset value in current msg body, NOTE: ts list is compressed
   int32_t tsLen;          // total length of ts comp block
@@ -759,12 +1047,16 @@ typedef struct {
   int64_t offset;
 } SInterval;
 
-typedef struct {
-  int32_t code;
+typedef struct STbVerInfo {
   char    tbFName[TSDB_TABLE_FNAME_LEN];
   int32_t sversion;
   int32_t tversion;
+} STbVerInfo;
+
+typedef struct {
+  int32_t code;
   int64_t affectedRows;
+  SArray* tbVerInfo;  // STbVerInfo
 } SQueryTableRsp;
 
 int32_t tSerializeSQueryTableRsp(void* buf, int32_t bufLen, SQueryTableRsp* pRsp);
@@ -818,6 +1110,7 @@ typedef struct {
   int32_t daysToKeep0;
   int32_t daysToKeep1;
   int32_t daysToKeep2;
+  int32_t keepTimeOffset;
   int32_t minRows;
   int32_t maxRows;
   int32_t walFsyncPeriod;
@@ -839,6 +1132,8 @@ typedef struct {
   int16_t hashPrefix;
   int16_t hashSuffix;
   int32_t tsdbPageSize;
+  int32_t sqlLen;
+  char*   sql;
 } SCreateDbReq;
 
 int32_t tSerializeSCreateDbReq(void* buf, int32_t bufLen, SCreateDbReq* pReq);
@@ -855,6 +1150,7 @@ typedef struct {
   int32_t daysToKeep0;
   int32_t daysToKeep1;
   int32_t daysToKeep2;
+  int32_t keepTimeOffset;
   int32_t walFsyncPeriod;
   int8_t  walLevel;
   int8_t  strict;
@@ -864,18 +1160,24 @@ typedef struct {
   int32_t minRows;
   int32_t walRetentionPeriod;
   int32_t walRetentionSize;
+  int32_t sqlLen;
+  char*   sql;
 } SAlterDbReq;
 
 int32_t tSerializeSAlterDbReq(void* buf, int32_t bufLen, SAlterDbReq* pReq);
 int32_t tDeserializeSAlterDbReq(void* buf, int32_t bufLen, SAlterDbReq* pReq);
+void    tFreeSAlterDbReq(SAlterDbReq* pReq);
 
 typedef struct {
   char   db[TSDB_DB_FNAME_LEN];
   int8_t ignoreNotExists;
+  int32_t sqlLen;
+  char*   sql;
 } SDropDbReq;
 
 int32_t tSerializeSDropDbReq(void* buf, int32_t bufLen, SDropDbReq* pReq);
 int32_t tDeserializeSDropDbReq(void* buf, int32_t bufLen, SDropDbReq* pReq);
+void    tFreeSDropDbReq(SDropDbReq* pReq);
 
 typedef struct {
   char    db[TSDB_DB_FNAME_LEN];
@@ -939,6 +1241,9 @@ int32_t tDeserializeSVTrimDbReq(void* buf, int32_t bufLen, SVTrimDbReq* pReq);
 
 typedef struct {
   int32_t timestampSec;
+  int32_t ttlDropMaxCount;
+  int32_t nUids;
+  SArray* pTbUids;
 } SVDropTtlTableReq;
 
 int32_t tSerializeSVDropTtlTableReq(void* buf, int32_t bufLen, SVDropTtlTableReq* pReq);
@@ -958,6 +1263,7 @@ typedef struct {
   int32_t daysToKeep0;
   int32_t daysToKeep1;
   int32_t daysToKeep2;
+  int32_t keepTimeOffset;
   int32_t minRows;
   int32_t maxRows;
   int32_t walFsyncPeriod;
@@ -980,13 +1286,13 @@ typedef struct {
   int16_t sstTrigger;
 } SDbCfgRsp;
 
-typedef SDbCfgRsp     SDbCfgInfo;
+typedef SDbCfgRsp SDbCfgInfo;
 
-int32_t tSerializeSDbCfgRspImpl(SEncoder *encoder, const SDbCfgRsp *pRsp);
+int32_t tSerializeSDbCfgRspImpl(SEncoder* encoder, const SDbCfgRsp* pRsp);
 int32_t tSerializeSDbCfgRsp(void* buf, int32_t bufLen, const SDbCfgRsp* pRsp);
 int32_t tDeserializeSDbCfgRsp(void* buf, int32_t bufLen, SDbCfgRsp* pRsp);
-int32_t tDeserializeSDbCfgRspImpl(SDecoder* decoder, SDbCfgRsp *pRsp);
-void tFreeSDbCfgRsp(SDbCfgRsp *pRsp);
+int32_t tDeserializeSDbCfgRspImpl(SDecoder* decoder, SDbCfgRsp* pRsp);
+void    tFreeSDbCfgRsp(SDbCfgRsp* pRsp);
 
 typedef struct {
   int32_t rowNum;
@@ -1043,8 +1349,8 @@ int32_t tDeserializeSDnodeListRsp(void* buf, int32_t bufLen, SDnodeListRsp* pRsp
 void    tFreeSDnodeListRsp(SDnodeListRsp* pRsp);
 
 typedef struct {
-  SUseDbRsp *useDbRsp;
-  SDbCfgRsp *cfgRsp;
+  SUseDbRsp* useDbRsp;
+  SDbCfgRsp* cfgRsp;
 } SDbHbRsp;
 
 typedef struct {
@@ -1066,10 +1372,13 @@ void    tFreeSUserAuthBatchRsp(SUserAuthBatchRsp* pRsp);
 typedef struct {
   char        db[TSDB_DB_FNAME_LEN];
   STimeWindow timeRange;
+  int32_t     sqlLen;
+  char*       sql;
 } SCompactDbReq;
 
 int32_t tSerializeSCompactDbReq(void* buf, int32_t bufLen, SCompactDbReq* pReq);
 int32_t tDeserializeSCompactDbReq(void* buf, int32_t bufLen, SCompactDbReq* pReq);
+void    tFreeSCompactDbReq(SCompactDbReq *pReq);
 
 typedef struct {
   char    name[TSDB_FUNC_NAME_LEN];
@@ -1145,6 +1454,7 @@ typedef struct {
   char    locale[TD_LOCALE_LEN];      // tsLocale
   char    charset[TD_LOCALE_LEN];     // tsCharset
   int8_t  ttlChangeOnWrite;
+  int8_t  enableWhiteList;
 } SClusterCfg;
 
 typedef struct {
@@ -1163,6 +1473,9 @@ typedef struct {
   int32_t vgId;
   int8_t  syncState;
   int8_t  syncRestore;
+  int64_t syncTerm;
+  int64_t roleTimeMs;
+  int64_t startTimeMs;
   int8_t  syncCanRead;
   int64_t cacheUsage;
   int64_t numOfTables;
@@ -1176,12 +1489,18 @@ typedef struct {
   int64_t numOfBatchInsertReqs;
   int64_t numOfBatchInsertSuccessReqs;
   int32_t numOfCachedTables;
+  int32_t learnerProgress;  // use one reservered
 } SVnodeLoad;
 
 typedef struct {
-  int8_t syncState;
-  int8_t syncRestore;
+  int32_t vgId;
+  int64_t nTimeSeries;
+} SVnodeLoadLite;
+
+typedef struct {
+  int8_t  syncState;
   int64_t syncTerm;
+  int8_t  syncRestore;
   int64_t roleTimeMs;
 } SMnodeLoad;
 
@@ -1191,6 +1510,7 @@ typedef struct {
   int64_t numOfProcessedCQuery;
   int64_t numOfProcessedFetch;
   int64_t numOfProcessedDrop;
+  int64_t numOfProcessedNotify;
   int64_t numOfProcessedHb;
   int64_t numOfProcessedDelete;
   int64_t cacheDataSize;
@@ -1217,11 +1537,22 @@ typedef struct {
   SClusterCfg clusterCfg;
   SArray*     pVloads;  // array of SVnodeLoad
   int32_t     statusSeq;
+  int64_t     ipWhiteVer;
 } SStatusReq;
 
 int32_t tSerializeSStatusReq(void* buf, int32_t bufLen, SStatusReq* pReq);
 int32_t tDeserializeSStatusReq(void* buf, int32_t bufLen, SStatusReq* pReq);
 void    tFreeSStatusReq(SStatusReq* pReq);
+
+typedef struct {
+  int32_t dnodeId;
+  int64_t clusterId;
+  SArray* pVloads;
+} SNotifyReq;
+
+int32_t tSerializeSNotifyReq(void* buf, int32_t bufLen, SNotifyReq* pReq);
+int32_t tDeserializeSNotifyReq(void* buf, int32_t bufLen, SNotifyReq* pReq);
+void    tFreeSNotifyReq(SNotifyReq* pReq);
 
 typedef struct {
   int32_t dnodeId;
@@ -1247,6 +1578,7 @@ typedef struct {
   SDnodeCfg dnodeCfg;
   SArray*   pDnodeEps;  // Array of SDnodeEp
   int32_t   statusSeq;
+  int64_t   ipWhiteVer;
 } SStatusRsp;
 
 int32_t tSerializeSStatusRsp(void* buf, int32_t bufLen, SStatusRsp* pRsp);
@@ -1287,6 +1619,7 @@ typedef struct {
   int32_t  daysToKeep0;
   int32_t  daysToKeep1;
   int32_t  daysToKeep2;
+  int32_t  keepTimeOffset;
   int32_t  minRows;
   int32_t  maxRows;
   int32_t  walFsyncPeriod;
@@ -1317,6 +1650,7 @@ typedef struct {
   int8_t   learnerReplica;
   int8_t   learnerSelfIndex;
   SReplica learnerReplicas[TSDB_MAX_LEARNER_REPLICA];
+  int32_t  changeVersion;
 } SCreateVnodeReq;
 
 int32_t tSerializeSCreateVnodeReq(void* buf, int32_t bufLen, SCreateVnodeReq* pReq);
@@ -1365,6 +1699,7 @@ typedef struct {
   int32_t daysToKeep0;
   int32_t daysToKeep1;
   int32_t daysToKeep2;
+  int32_t keepTimeOffset;
   int32_t walFsyncPeriod;
   int8_t  walLevel;
   int8_t  strict;
@@ -1391,7 +1726,8 @@ typedef struct {
   int8_t   learnerSelfIndex;
   int8_t   learnerReplica;
   SReplica learnerReplicas[TSDB_MAX_LEARNER_REPLICA];
-} SAlterVnodeReplicaReq, SAlterVnodeTypeReq;
+  int32_t  changeVersion;
+} SAlterVnodeReplicaReq, SAlterVnodeTypeReq, SCheckLearnCatchupReq;
 
 int32_t tSerializeSAlterVnodeReplicaReq(void* buf, int32_t bufLen, SAlterVnodeReplicaReq* pReq);
 int32_t tDeserializeSAlterVnodeReplicaReq(void* buf, int32_t bufLen, SAlterVnodeReplicaReq* pReq);
@@ -1409,7 +1745,8 @@ typedef struct {
   int32_t  dstVgId;
   uint32_t hashBegin;
   uint32_t hashEnd;
-  int64_t  reserved;
+  int32_t  changeVersion;
+  int32_t  reserved;
 } SAlterVnodeHashRangeReq;
 
 int32_t tSerializeSAlterVnodeHashRangeReq(void* buf, int32_t bufLen, SAlterVnodeHashRangeReq* pReq);
@@ -1621,10 +1958,13 @@ void    tFreeSExplainRsp(SExplainRsp* pRsp);
 typedef struct {
   char    fqdn[TSDB_FQDN_LEN];  // end point, hostname:port
   int32_t port;
+  int32_t sqlLen;
+  char*   sql;
 } SCreateDnodeReq;
 
 int32_t tSerializeSCreateDnodeReq(void* buf, int32_t bufLen, SCreateDnodeReq* pReq);
 int32_t tDeserializeSCreateDnodeReq(void* buf, int32_t bufLen, SCreateDnodeReq* pReq);
+void    tFreeSCreateDnodeReq(SCreateDnodeReq* pReq);
 
 typedef struct {
   int32_t dnodeId;
@@ -1632,10 +1972,13 @@ typedef struct {
   int32_t port;
   int8_t  force;
   int8_t  unsafe;
+  int32_t sqlLen;
+  char*   sql;
 } SDropDnodeReq;
 
 int32_t tSerializeSDropDnodeReq(void* buf, int32_t bufLen, SDropDnodeReq* pReq);
 int32_t tDeserializeSDropDnodeReq(void* buf, int32_t bufLen, SDropDnodeReq* pReq);
+void    tFreeSDropDnodeReq(SDropDnodeReq* pReq);
 
 enum {
   RESTORE_TYPE__ALL = 1,
@@ -1647,19 +1990,25 @@ enum {
 typedef struct {
   int32_t dnodeId;
   int8_t  restoreType;
+  int32_t sqlLen;
+  char*   sql;
 } SRestoreDnodeReq;
 
 int32_t tSerializeSRestoreDnodeReq(void* buf, int32_t bufLen, SRestoreDnodeReq* pReq);
 int32_t tDeserializeSRestoreDnodeReq(void* buf, int32_t bufLen, SRestoreDnodeReq* pReq);
+void    tFreeSRestoreDnodeReq(SRestoreDnodeReq *pReq);
 
 typedef struct {
   int32_t dnodeId;
   char    config[TSDB_DNODE_CONFIG_LEN];
   char    value[TSDB_DNODE_VALUE_LEN];
+  int32_t sqlLen;
+  char*   sql;
 } SMCfgDnodeReq;
 
 int32_t tSerializeSMCfgDnodeReq(void* buf, int32_t bufLen, SMCfgDnodeReq* pReq);
 int32_t tDeserializeSMCfgDnodeReq(void* buf, int32_t bufLen, SMCfgDnodeReq* pReq);
+void tFreeSMCfgDnodeReq(SMCfgDnodeReq *pReq);
 
 typedef struct {
   char config[TSDB_DNODE_CONFIG_LEN];
@@ -1671,12 +2020,15 @@ int32_t tDeserializeSDCfgDnodeReq(void* buf, int32_t bufLen, SDCfgDnodeReq* pReq
 
 typedef struct {
   int32_t dnodeId;
+  int32_t sqlLen;
+  char*   sql;
 } SMCreateMnodeReq, SMDropMnodeReq, SDDropMnodeReq, SMCreateQnodeReq, SMDropQnodeReq, SDCreateQnodeReq, SDDropQnodeReq,
     SMCreateSnodeReq, SMDropSnodeReq, SDCreateSnodeReq, SDDropSnodeReq;
 
 int32_t tSerializeSCreateDropMQSNodeReq(void* buf, int32_t bufLen, SMCreateQnodeReq* pReq);
 int32_t tDeserializeSCreateDropMQSNodeReq(void* buf, int32_t bufLen, SMCreateQnodeReq* pReq);
-
+void    tFreeSMCreateQnodeReq(SMCreateQnodeReq *pReq);
+void    tFreeSDDropQnodeReq(SDDropQnodeReq* pReq);
 typedef struct {
   int8_t   replica;
   SReplica replicas[TSDB_MAX_REPLICA];
@@ -1711,10 +2063,13 @@ int32_t tDeserializeSKillTransReq(void* buf, int32_t bufLen, SKillTransReq* pReq
 
 typedef struct {
   int32_t useless;  // useless
+  int32_t sqlLen;
+  char*   sql;
 } SBalanceVgroupReq;
 
 int32_t tSerializeSBalanceVgroupReq(void* buf, int32_t bufLen, SBalanceVgroupReq* pReq);
 int32_t tDeserializeSBalanceVgroupReq(void* buf, int32_t bufLen, SBalanceVgroupReq* pReq);
+void    tFreeSBalanceVgroupReq(SBalanceVgroupReq *pReq);
 
 typedef struct {
   int32_t vgId1;
@@ -1729,17 +2084,24 @@ typedef struct {
   int32_t dnodeId1;
   int32_t dnodeId2;
   int32_t dnodeId3;
+  int32_t sqlLen;
+  char*   sql;
 } SRedistributeVgroupReq;
 
 int32_t tSerializeSRedistributeVgroupReq(void* buf, int32_t bufLen, SRedistributeVgroupReq* pReq);
 int32_t tDeserializeSRedistributeVgroupReq(void* buf, int32_t bufLen, SRedistributeVgroupReq* pReq);
+void    tFreeSRedistributeVgroupReq(SRedistributeVgroupReq *pReq);
 
 typedef struct {
   int32_t useless;
+  int32_t vgId;
+  int32_t sqlLen;
+  char*   sql;
 } SBalanceVgroupLeaderReq;
 
 int32_t tSerializeSBalanceVgroupLeaderReq(void* buf, int32_t bufLen, SBalanceVgroupLeaderReq* pReq);
 int32_t tDeserializeSBalanceVgroupLeaderReq(void* buf, int32_t bufLen, SBalanceVgroupLeaderReq* pReq);
+void    tFreeSBalanceVgroupLeaderReq(SBalanceVgroupLeaderReq *pReq);
 
 typedef struct {
   int32_t vgId;
@@ -1831,12 +2193,25 @@ typedef struct {
   int32_t tversion;
 } SResReadyRsp;
 
+typedef struct SOperatorParam {
+  int32_t opType;
+  int32_t downstreamIdx;
+  void*   value;
+  SArray* pChildren;  // SArray<SOperatorParam*>
+} SOperatorParam;
+
+typedef struct STableScanOperatorParam {
+  bool    tableSeq;
+  SArray* pUidList;
+} STableScanOperatorParam;
+
 typedef struct {
-  SMsgHead header;
-  uint64_t sId;
-  uint64_t queryId;
-  uint64_t taskId;
-  int32_t  execId;
+  SMsgHead        header;
+  uint64_t        sId;
+  uint64_t        queryId;
+  uint64_t        taskId;
+  int32_t         execId;
+  SOperatorParam* pOpParam;
 } SResFetchReq;
 
 int32_t tSerializeSResFetchReq(void* buf, int32_t bufLen, SResFetchReq* pReq);
@@ -1915,8 +2290,23 @@ typedef struct {
 
 int32_t tSerializeSTaskDropReq(void* buf, int32_t bufLen, STaskDropReq* pReq);
 int32_t tDeserializeSTaskDropReq(void* buf, int32_t bufLen, STaskDropReq* pReq);
-int32_t tSerializeSTaskDropReq(void* buf, int32_t bufLen, STaskDropReq* pReq);
-int32_t tDeserializeSTaskDropReq(void* buf, int32_t bufLen, STaskDropReq* pReq);
+
+typedef enum {
+  TASK_NOTIFY_FINISHED = 1,
+} ETaskNotifyType;
+
+typedef struct {
+  SMsgHead        header;
+  uint64_t        sId;
+  uint64_t        queryId;
+  uint64_t        taskId;
+  int64_t         refId;
+  int32_t         execId;
+  ETaskNotifyType type;
+} STaskNotifyReq;
+
+int32_t tSerializeSTaskNotifyReq(void* buf, int32_t bufLen, STaskNotifyReq* pReq);
+int32_t tDeserializeSTaskNotifyReq(void* buf, int32_t bufLen, STaskNotifyReq* pReq);
 
 int32_t tSerializeSQueryTableRsp(void* buf, int32_t bufLen, SQueryTableRsp* pRsp);
 int32_t tDeserializeSQueryTableRsp(void* buf, int32_t bufLen, SQueryTableRsp* pRsp);
@@ -2024,10 +2414,10 @@ typedef struct {
   char    clientId[256];
   SArray* topicNames;  // SArray<char**>
 
-  int8_t         withTbName;
-  int8_t         autoCommit;
-  int32_t        autoCommitInterval;
-  int8_t         resetOffsetCfg;
+  int8_t  withTbName;
+  int8_t  autoCommit;
+  int32_t autoCommitInterval;
+  int8_t  resetOffsetCfg;
 } SCMSubscribeReq;
 
 static FORCE_INLINE int32_t tSerializeSCMSubscribeReq(void** buf, const SCMSubscribeReq* pReq) {
@@ -2185,10 +2575,13 @@ typedef struct {
 typedef struct {
   char   name[TSDB_TOPIC_FNAME_LEN];
   int8_t igNotExists;
+  int32_t sqlLen;
+  char*   sql;
 } SMDropTopicReq;
 
 int32_t tSerializeSMDropTopicReq(void* buf, int32_t bufLen, SMDropTopicReq* pReq);
 int32_t tDeserializeSMDropTopicReq(void* buf, int32_t bufLen, SMDropTopicReq* pReq);
+void    tFreeSMDropTopicReq(SMDropTopicReq *pReq);
 
 typedef struct {
   char   topic[TSDB_TOPIC_FNAME_LEN];
@@ -2284,6 +2677,8 @@ typedef struct SVCreateTbReq {
       SSchemaWrapper schemaRow;
     } ntb;
   };
+  int32_t sqlLen;
+  char*   sql;
 } SVCreateTbReq;
 
 int  tEncodeSVCreateTbReq(SEncoder* pCoder, const SVCreateTbReq* pReq);
@@ -2295,6 +2690,7 @@ static FORCE_INLINE void tdDestroySVCreateTbReq(SVCreateTbReq* req) {
     return;
   }
 
+  taosMemoryFreeClear(req->sql);
   taosMemoryFreeClear(req->name);
   taosMemoryFreeClear(req->comment);
   if (req->type == TSDB_CHILD_TABLE) {
@@ -2404,7 +2800,7 @@ typedef struct {
   int32_t newTTL;
   int32_t newCommentLen;
   char*   newComment;
-  int64_t ctimeMs; // fill by vnode
+  int64_t ctimeMs;  // fill by vnode
 } SVAlterTbReq;
 
 int32_t tEncodeSVAlterTbReq(SEncoder* pEncoder, const SVAlterTbReq* pReq);
@@ -2758,6 +3154,8 @@ typedef struct {
 typedef struct {
   char   name[TSDB_STREAM_FNAME_LEN];
   int8_t igNotExists;
+  int32_t sqlLen;
+  char*   sql;
 } SMDropStreamReq;
 
 typedef struct {
@@ -2767,8 +3165,16 @@ typedef struct {
 typedef struct {
   SMsgHead head;
   int64_t  leftForVer;
+  int64_t  streamId;
   int32_t  taskId;
 } SVDropStreamTaskReq;
+
+typedef struct {
+  SMsgHead head;
+  int64_t  streamId;
+  int32_t  taskId;
+  int64_t  dataVer;
+} SVStreamTaskVerUpdateReq;
 
 typedef struct {
   int8_t reserved;
@@ -2776,6 +3182,7 @@ typedef struct {
 
 int32_t tSerializeSMDropStreamReq(void* buf, int32_t bufLen, const SMDropStreamReq* pReq);
 int32_t tDeserializeSMDropStreamReq(void* buf, int32_t bufLen, SMDropStreamReq* pReq);
+void    tFreeSMDropStreamReq(SMDropStreamReq* pReq);
 
 typedef struct {
   char   name[TSDB_STREAM_FNAME_LEN];
@@ -2807,7 +3214,7 @@ typedef struct {
   int64_t suid;
 } SMqRebVgReq;
 
-static FORCE_INLINE int tEncodeSMqRebVgReq(SEncoder *pCoder, const SMqRebVgReq* pReq) {
+static FORCE_INLINE int tEncodeSMqRebVgReq(SEncoder* pCoder, const SMqRebVgReq* pReq) {
   if (tStartEncode(pCoder) < 0) return -1;
   if (tEncodeI64(pCoder, pReq->leftForVer) < 0) return -1;
   if (tEncodeI32(pCoder, pReq->vgId) < 0) return -1;
@@ -2827,7 +3234,7 @@ static FORCE_INLINE int tEncodeSMqRebVgReq(SEncoder *pCoder, const SMqRebVgReq* 
   return 0;
 }
 
-static FORCE_INLINE int tDecodeSMqRebVgReq(SDecoder *pCoder, SMqRebVgReq* pReq) {
+static FORCE_INLINE int tDecodeSMqRebVgReq(SDecoder* pCoder, SMqRebVgReq* pReq) {
   if (tStartDecode(pCoder) < 0) return -1;
 
   if (tDecodeI64(pCoder, &pReq->leftForVer) < 0) return -1;
@@ -2843,7 +3250,7 @@ static FORCE_INLINE int tDecodeSMqRebVgReq(SDecoder *pCoder, SMqRebVgReq* pReq) 
     if (tDecodeCStr(pCoder, &pReq->qmsg) < 0) return -1;
   } else if (pReq->subType == TOPIC_SUB_TYPE__TABLE) {
     if (tDecodeI64(pCoder, &pReq->suid) < 0) return -1;
-    if (!tDecodeIsEnd(pCoder)){
+    if (!tDecodeIsEnd(pCoder)) {
       if (tDecodeCStr(pCoder, &pReq->qmsg) < 0) return -1;
     }
   }
@@ -2861,32 +3268,6 @@ typedef struct {
 int32_t tEncodeSTqCheckInfo(SEncoder* pEncoder, const STqCheckInfo* pInfo);
 int32_t tDecodeSTqCheckInfo(SDecoder* pDecoder, STqCheckInfo* pInfo);
 void    tDeleteSTqCheckInfo(STqCheckInfo* pInfo);
-
-typedef struct {
-  char topic[TSDB_TOPIC_FNAME_LEN];
-} STqDelCheckInfoReq;
-
-typedef struct {
-  int32_t vgId;
-  int64_t offset;
-  char    topicName[TSDB_TOPIC_FNAME_LEN];
-  char    cgroup[TSDB_CGROUP_LEN];
-} SMqOffset;
-
-typedef struct {
-  int64_t    consumerId;
-  int32_t    num;
-  SMqOffset* offsets;
-} SMqCMCommitOffsetReq;
-
-typedef struct {
-  int32_t reserved;
-} SMqCMCommitOffsetRsp;
-
-int32_t tEncodeSMqOffset(SEncoder* encoder, const SMqOffset* pOffset);
-int32_t tDecodeSMqOffset(SDecoder* decoder, SMqOffset* pOffset);
-int32_t tEncodeSMqCMCommitOffsetReq(SEncoder* encoder, const SMqCMCommitOffsetReq* pReq);
-int32_t tDecodeSMqCMCommitOffsetReq(SDecoder* decoder, SMqCMCommitOffsetReq* pReq);
 
 // tqOffset
 enum {
@@ -2958,8 +3339,9 @@ int32_t tDecodeMqVgOffset(SDecoder* pDecoder, SMqVgOffset* pOffset);
 
 typedef struct {
   SMsgHead head;
+  int64_t  streamId;
   int32_t  taskId;
-} SVPauseStreamTaskReq;
+} SVPauseStreamTaskReq, SVResetStreamTaskReq;
 
 typedef struct {
   int8_t reserved;
@@ -2976,6 +3358,7 @@ int32_t tDeserializeSMPauseStreamReq(void* buf, int32_t bufLen, SMPauseStreamReq
 typedef struct {
   SMsgHead head;
   int32_t  taskId;
+  int64_t  streamId;
   int8_t   igUntreated;
 } SVResumeStreamTaskReq;
 
@@ -3365,12 +3748,12 @@ typedef struct {
   int32_t      vgId;
   STqOffsetVal offset;
   int64_t      rows;
-}OffsetRows;
+} OffsetRows;
 
-typedef struct{
-  char       topicName[TSDB_TOPIC_FNAME_LEN];
-  SArray*    offsetRows;
-}TopicOffsetRows;
+typedef struct {
+  char    topicName[TSDB_TOPIC_FNAME_LEN];
+  SArray* offsetRows;
+} TopicOffsetRows;
 
 typedef struct {
   int64_t consumerId;
@@ -3383,9 +3766,9 @@ typedef struct {
 } SMqHbRsp;
 
 typedef struct {
-  SMsgHead     head;
-  int64_t consumerId;
-  char subKey[TSDB_SUBSCRIBE_KEY_LEN];
+  SMsgHead head;
+  int64_t  consumerId;
+  char     subKey[TSDB_SUBSCRIBE_KEY_LEN];
 } SMqSeekReq;
 
 #define TD_AUTO_CREATE_TABLE 0x1
@@ -3439,7 +3822,7 @@ typedef struct SDeleteRes {
   int64_t  affectedRows;
   char     tableFName[TSDB_TABLE_NAME_LEN];
   char     tsColName[TSDB_COL_NAME_LEN];
-  int64_t  ctimeMs; // fill by vnode
+  int64_t  ctimeMs;  // fill by vnode
 } SDeleteRes;
 
 int32_t tEncodeDeleteRes(SEncoder* pCoder, const SDeleteRes* pRes);
@@ -3517,8 +3900,8 @@ int32_t tSerializeSMqHbReq(void* buf, int32_t bufLen, SMqHbReq* pReq);
 int32_t tDeserializeSMqHbReq(void* buf, int32_t bufLen, SMqHbReq* pReq);
 int32_t tDeatroySMqHbReq(SMqHbReq* pReq);
 
-int32_t tSerializeSMqSeekReq(void *buf, int32_t bufLen, SMqSeekReq *pReq);
-int32_t tDeserializeSMqSeekReq(void *buf, int32_t bufLen, SMqSeekReq *pReq);
+int32_t tSerializeSMqSeekReq(void* buf, int32_t bufLen, SMqSeekReq* pReq);
+int32_t tDeserializeSMqSeekReq(void* buf, int32_t bufLen, SMqSeekReq* pReq);
 
 #define SUBMIT_REQ_AUTO_CREATE_TABLE  0x1
 #define SUBMIT_REQ_COLUMN_DATA_FORMAT 0x2
@@ -3533,7 +3916,7 @@ typedef struct {
     SArray* aRowP;
     SArray* aCol;
   };
-  int64_t        ctimeMs;
+  int64_t ctimeMs;
 } SSubmitTbData;
 
 typedef struct {

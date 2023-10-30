@@ -12,7 +12,10 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+// clang-format off
 #include "transComm.h"
+#include "tmisce.h"
+// clang-format on
 
 typedef struct {
   int32_t numOfConn;
@@ -308,19 +311,6 @@ static void cliWalkCb(uv_handle_t* handle, void* arg);
     }                                                          \
   } while (0)
 
-#define EPSET_DEBUG_STR(epSet, tbuf)                                                                                   \
-  do {                                                                                                                 \
-    int len = snprintf(tbuf, sizeof(tbuf), "epset:{");                                                                 \
-    for (int i = 0; i < (epSet)->numOfEps; i++) {                                                                      \
-      if (i == (epSet)->numOfEps - 1) {                                                                                \
-        len += snprintf(tbuf + len, sizeof(tbuf) - len, "%d. %s:%d", i, (epSet)->eps[i].fqdn, (epSet)->eps[i].port);   \
-      } else {                                                                                                         \
-        len += snprintf(tbuf + len, sizeof(tbuf) - len, "%d. %s:%d, ", i, (epSet)->eps[i].fqdn, (epSet)->eps[i].port); \
-      }                                                                                                                \
-    }                                                                                                                  \
-    len += snprintf(tbuf + len, sizeof(tbuf) - len, "}, inUse:%d", (epSet)->inUse);                                    \
-  } while (0);
-
 static void* cliWorkThread(void* arg);
 
 static void cliReleaseUnfinishedMsg(SCliConn* conn) {
@@ -586,6 +576,7 @@ void* destroyConnPool(SCliThrd* pThrd) {
     connList = taosHashIterate((SHashObj*)pool, connList);
   }
   taosHashCleanup(pool);
+  pThrd->pool = NULL;
   return NULL;
 }
 
@@ -880,8 +871,10 @@ static void cliDestroyConn(SCliConn* conn, bool clear) {
     connList->list->numOfConn--;
     connList->size--;
   } else {
-    SConnList* connList = taosHashGet((SHashObj*)pThrd->pool, conn->dstAddr, strlen(conn->dstAddr) + 1);
-    if (connList != NULL) connList->list->numOfConn--;
+    if (pThrd->pool) {
+      SConnList* connList = taosHashGet((SHashObj*)pThrd->pool, conn->dstAddr, strlen(conn->dstAddr) + 1);
+      if (connList != NULL) connList->list->numOfConn--;
+    }
   }
   conn->list = NULL;
   pThrd->newConnCount--;
@@ -1202,7 +1195,7 @@ static void cliHandleBatchReq(SCliBatch* pBatch, SCliThrd* pThrd) {
       cliHandleFastFail(conn, -1);
       return;
     }
-    ret = transSetConnOption((uv_tcp_t*)conn->stream);
+    ret = transSetConnOption((uv_tcp_t*)conn->stream, 20);
     if (ret != 0) {
       tError("%s conn %p failed to set socket opt, reason:%s", transLabel(pTransInst), conn, uv_err_name(ret));
       cliHandleFastFail(conn, -1);
@@ -1268,7 +1261,7 @@ static void cliHandleFastFail(SCliConn* pConn, int status) {
   SCliThrd* pThrd = pConn->hostThrd;
   STrans*   pTransInst = pThrd->pTransInst;
 
-  if (status == -1) status = ENETUNREACH;
+  if (status == -1) status = UV_EADDRNOTAVAIL;
 
   if (pConn->pBatch == NULL) {
     SCliMsg* pMsg = transQueueGet(&pConn->cliMsgs, 0);
@@ -1610,7 +1603,7 @@ void cliHandleReq(SCliMsg* pMsg, SCliThrd* pThrd) {
 
     tGTrace("%s conn %p try to connect to %s", pTransInst->label, conn, conn->dstAddr);
     pThrd->newConnCount++;
-    int32_t fd = taosCreateSocketWithTimeout(TRANS_CONN_TIMEOUT * 4);
+    int32_t fd = taosCreateSocketWithTimeout(TRANS_CONN_TIMEOUT * 10);
     if (fd == -1) {
       tGError("%s conn %p failed to create socket, reason:%s", transLabel(pTransInst), conn,
               tstrerror(TAOS_SYSTEM_ERROR(errno)));
@@ -1624,7 +1617,7 @@ void cliHandleReq(SCliMsg* pMsg, SCliThrd* pThrd) {
       cliHandleExcept(conn);
       return;
     }
-    ret = transSetConnOption((uv_tcp_t*)conn->stream);
+    ret = transSetConnOption((uv_tcp_t*)conn->stream, tsKeepAliveIdle);
     if (ret != 0) {
       tGError("%s conn %p failed to set socket opt, reason:%s", transLabel(pTransInst), conn, uv_err_name(ret));
       cliHandleExcept(conn);
@@ -2166,8 +2159,8 @@ static void cliSchedMsgToNextNode(SCliMsg* pMsg, SCliThrd* pThrd) {
 
   if (rpcDebugFlag & DEBUG_DEBUG) {
     STraceId* trace = &pMsg->msg.info.traceId;
-    char      tbuf[256] = {0};
-    EPSET_DEBUG_STR(&pCtx->epSet, tbuf);
+    char      tbuf[512] = {0};
+    EPSET_TO_STR(&pCtx->epSet, tbuf);
     tGDebug("%s retry on next node,use:%s, step: %d,timeout:%" PRId64 "", transLabel(pThrd->pTransInst), tbuf,
             pCtx->retryStep, pCtx->retryNextInterval);
   }
@@ -2231,7 +2224,9 @@ bool cliResetEpset(STransConnCtx* pCtx, STransMsg* pResp, bool hasEpSet) {
         }
       } else {
         if (!transEpSetIsEqual(&pCtx->epSet, &epSet)) {
-          tDebug("epset not equal, retry new epset");
+          tDebug("epset not equal, retry new epset1");
+          transPrintEpSet(&pCtx->epSet);
+          transPrintEpSet(&epSet);
           epsetAssign(&pCtx->epSet, &epSet);
           noDelay = false;
         } else {
@@ -2256,7 +2251,9 @@ bool cliResetEpset(STransConnCtx* pCtx, STransMsg* pResp, bool hasEpSet) {
       }
     } else {
       if (!transEpSetIsEqual(&pCtx->epSet, &epSet)) {
-        tDebug("epset not equal, retry new epset");
+        tDebug("epset not equal, retry new epset2");
+        transPrintEpSet(&pCtx->epSet);
+        transPrintEpSet(&epSet);
         epsetAssign(&pCtx->epSet, &epSet);
         noDelay = false;
       } else {
@@ -2287,7 +2284,7 @@ bool cliGenRetryRule(SCliConn* pConn, STransMsg* pResp, SCliMsg* pMsg) {
     pCtx->retryMinInterval = pTransInst->retryMinInterval;
     pCtx->retryMaxInterval = pTransInst->retryMaxInterval;
     pCtx->retryStepFactor = pTransInst->retryStepFactor;
-    pCtx->retryMaxTimeout = pTransInst->retryMaxTimouet;
+    pCtx->retryMaxTimeout = pTransInst->retryMaxTimeout;
     pCtx->retryInitTimestamp = taosGetTimestampMs();
     pCtx->retryNextInterval = pCtx->retryMinInterval;
     pCtx->retryStep = 0;
@@ -2395,8 +2392,8 @@ int cliAppCb(SCliConn* pConn, STransMsg* pResp, SCliMsg* pMsg) {
   bool      hasEpSet = cliTryExtractEpSet(pResp, &pCtx->epSet);
   if (hasEpSet) {
     if (rpcDebugFlag & DEBUG_TRACE) {
-      char tbuf[256] = {0};
-      EPSET_DEBUG_STR(&pCtx->epSet, tbuf);
+      char tbuf[512] = {0};
+      EPSET_TO_STR(&pCtx->epSet, tbuf);
       tGTrace("%s conn %p extract epset from msg", CONN_GET_INST_LABEL(pConn), pConn);
     }
   }

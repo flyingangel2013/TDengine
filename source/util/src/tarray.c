@@ -191,7 +191,7 @@ void* taosArrayGet(const SArray* pArray, size_t index) {
   }
 
   if (index >= pArray->size) {
-    uError("index is out of range, current:%" PRIzu " max:%d", index, pArray->capacity);
+    uError("index is out of range, current:%" PRIzu " max:%"PRIzu, index, pArray->size);
     return NULL;
   }
 
@@ -319,7 +319,7 @@ SArray* taosArrayDup(const SArray* pSrc, __array_item_dup_fn_t fn) {
   if (NULL == pSrc) {
     return NULL;
   }
-  
+
   if (pSrc->size == 0) {  // empty array list
     return taosArrayInit(8, pSrc->elemSize);
   }
@@ -360,6 +360,23 @@ void taosArrayClearEx(SArray* pArray, void (*fp)(void*)) {
 
   pArray->size = 0;
 }
+void taosArrayClearP(SArray* pArray, void (*fp)(void*)) {
+  // if (pArray == NULL) return;
+  // if (fp == NULL) {
+  //   pArray->size = 0;
+  //   return;
+  // }
+
+  // for (int32_t i = 0; i < pArray->size; ++i) {
+  //   fp(TARRAY_GET_ELEM(pArray, i));
+  // }
+  if (pArray) {
+    for (int32_t i = 0; i < pArray->size; i++) {
+      fp(*(void**)TARRAY_GET_ELEM(pArray, i));
+    }
+  }
+  taosArrayClear(pArray);
+}
 
 void* taosArrayDestroy(SArray* pArray) {
   if (pArray) {
@@ -398,6 +415,10 @@ void taosArrayDestroyEx(SArray* pArray, FDelete fp) {
 
 void taosArraySort(SArray* pArray, __compar_fn_t compar) {
   taosSort(pArray->pData, pArray->size, pArray->elemSize, compar);
+}
+
+int32_t taosArrayMSort(SArray* pArray, __compar_fn_t compar) {
+  return taosMergeSort(pArray->pData, pArray->size, pArray->elemSize, compar);
 }
 
 void* taosArraySearch(const SArray* pArray, const void* key, __compar_fn_t comparFn, int32_t flags) {

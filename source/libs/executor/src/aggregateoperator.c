@@ -115,7 +115,7 @@ SOperatorInfo* createAggregateOperatorInfo(SOperatorInfo* downstream, SAggPhysiN
   setOperatorInfo(pOperator, "TableAggregate", QUERY_NODE_PHYSICAL_PLAN_HASH_AGG,
                   !pAggNode->node.forceCreateNonBlockingOptr, OP_NOT_OPENED, pInfo, pTaskInfo);
   pOperator->fpSet = createOperatorFpSet(optrDummyOpenFn, getAggregateResult, NULL, destroyAggOperatorInfo,
-                                         optrDefaultBufFn, NULL);
+                                         optrDefaultBufFn, NULL, optrDefaultGetNextExtFn, NULL);
 
   if (downstream->operatorType == QUERY_NODE_PHYSICAL_PLAN_TABLE_SCAN) {
     STableScanInfo* pTableScanInfo = downstream->info;
@@ -187,7 +187,7 @@ static bool nextGroupedResult(SOperatorInfo* pOperator) {
   }
   while (1) {
     bool blockAllocated = false;
-    pBlock = downstream->fpSet.getNextFn(downstream);
+    pBlock = getNextBlockFromDownstream(pOperator, 0);
     if (pBlock == NULL) {
       if (!pAggInfo->hasValidBlock) {
         createDataBlockForEmptyInput(pOperator, &pBlock);
@@ -303,6 +303,7 @@ static int32_t createDataBlockForEmptyInput(SOperatorInfo* pOperator, SSDataBloc
 
   SOperatorInfo* downstream = pOperator->pDownstream[0];
   if (downstream->operatorType == QUERY_NODE_PHYSICAL_PLAN_PARTITION ||
+      downstream->operatorType == QUERY_NODE_PHYSICAL_PLAN_SORT ||
       (downstream->operatorType == QUERY_NODE_PHYSICAL_PLAN_TABLE_SCAN &&
        ((STableScanInfo*)downstream->info)->hasGroupByTag == true)) {
     return TSDB_CODE_SUCCESS;
@@ -334,6 +335,7 @@ static int32_t createDataBlockForEmptyInput(SOperatorInfo* pOperator, SSDataBloc
     colInfo.info.type = TSDB_DATA_TYPE_NULL;
     colInfo.info.bytes = 1;
 
+
     SExprInfo* pOneExpr = &pOperator->exprSupp.pExprInfo[i];
     for (int32_t j = 0; j < pOneExpr->base.numOfParams; ++j) {
       SFunctParam* pFuncParam = &pOneExpr->base.pParam[j];
@@ -353,6 +355,10 @@ static int32_t createDataBlockForEmptyInput(SOperatorInfo* pOperator, SSDataBloc
   }
 
   blockDataEnsureCapacity(pBlock, pBlock->info.rows);
+  for (int32_t i = 0; i < blockDataGetNumOfCols(pBlock); ++i) {
+    SColumnInfoData* pColInfoData = taosArrayGet(pBlock->pDataBlock, i);
+    colDataSetNULL(pColInfoData, 0);
+  }
   *ppBlock = pBlock;
 
   return TSDB_CODE_SUCCESS;

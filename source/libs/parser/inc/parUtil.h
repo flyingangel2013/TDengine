@@ -116,7 +116,13 @@ int32_t getTableIndexFromCache(SParseMetaCache* pMetaCache, const SName* pName, 
 int32_t getTableCfgFromCache(SParseMetaCache* pMetaCache, const SName* pName, STableCfg** pOutput);
 int32_t getDnodeListFromCache(SParseMetaCache* pMetaCache, SArray** pDnodes);
 void    destoryParseMetaCache(SParseMetaCache* pMetaCache, bool request);
-SNode*  createSelectStmtImpl(bool isDistinct, SNodeList* pProjectionList, SNode* pTable);
+SNode*  createSelectStmtImpl(bool isDistinct, SNodeList* pProjectionList, SNode* pTable, SNodeList* pHint);
+
+/**
+ * @brief return a - b with overflow check
+ * @retval val range between [INT64_MIN, INT64_MAX]
+ */
+int64_t int64SafeSub(int64_t a, int64_t b);
 
 #ifdef __cplusplus
 }

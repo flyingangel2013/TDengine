@@ -30,7 +30,7 @@ int32_t tqProcessSubmitReqForSubscribe(STQ* pTq) {
   return 0;
 }
 
-int32_t tqPushMsg(STQ* pTq, void* msg, int32_t msgLen, tmsg_t msgType, int64_t ver) {
+int32_t tqPushMsg(STQ* pTq, tmsg_t msgType) {
   if (msgType == TDMT_VND_SUBMIT) {
     tqProcessSubmitReqForSubscribe(pTq);
   }
@@ -39,20 +39,14 @@ int32_t tqPushMsg(STQ* pTq, void* msg, int32_t msgLen, tmsg_t msgType, int64_t v
   int32_t numOfTasks = streamMetaGetNumOfTasks(pTq->pStreamMeta);
   taosRUnLockLatch(&pTq->pStreamMeta->lock);
 
-  tqDebug("handle submit, restore:%d, size:%d", pTq->pVnode->restored, numOfTasks);
+  tqDebug("handle submit, restore:%d, numOfTasks:%d", pTq->pVnode->restored, numOfTasks);
 
   // push data for stream processing:
   // 1. the vnode has already been restored.
   // 2. the vnode should be the leader.
   // 3. the stream is not suspended yet.
-  if (!tsDisableStream && vnodeIsRoleLeader(pTq->pVnode) && pTq->pVnode->restored) {
-    if (numOfTasks == 0) {
-      return 0;
-    }
-
-    if (msgType == TDMT_VND_SUBMIT || msgType == TDMT_VND_DELETE) {
-      tqStartStreamTasks(pTq);
-    }
+  if ((!tsDisableStream) && (numOfTasks > 0) && (msgType == TDMT_VND_SUBMIT || msgType == TDMT_VND_DELETE)) {
+    tqScanWalAsync(pTq, true);
   }
 
   return 0;
@@ -78,12 +72,12 @@ int32_t tqRegisterPushHandle(STQ* pTq, void* handle, SRpcMsg* pMsg) {
   memcpy(pHandle->msg->pCont, pMsg->pCont, pMsg->contLen);
   pHandle->msg->contLen = pMsg->contLen;
   int32_t ret = taosHashPut(pTq->pPushMgr, pHandle->subKey, strlen(pHandle->subKey), &pHandle, POINTER_BYTES);
-  tqDebug("vgId:%d data is over, ret:%d, consumerId:0x%" PRIx64 ", register to pHandle:%p, pCont:%p, len:%d", vgId, ret,
+  tqInfo("vgId:%d data is over, ret:%d, consumerId:0x%" PRIx64 ", register to pHandle:%p, pCont:%p, len:%d", vgId, ret,
           pHandle->consumerId, pHandle, pHandle->msg->pCont, pHandle->msg->contLen);
   return 0;
 }
 
-int32_t tqUnregisterPushHandle(STQ* pTq, void *handle) {
+int tqUnregisterPushHandle(STQ* pTq, void *handle) {
   STqHandle *pHandle = (STqHandle*)handle;
   int32_t    vgId = TD_VID(pTq->pVnode);
 
@@ -91,7 +85,7 @@ int32_t tqUnregisterPushHandle(STQ* pTq, void *handle) {
     return 0;
   }
   int32_t ret = taosHashRemove(pTq->pPushMgr, pHandle->subKey, strlen(pHandle->subKey));
-  tqDebug("vgId:%d remove pHandle:%p,ret:%d consumer Id:0x%" PRIx64, vgId, pHandle, ret, pHandle->consumerId);
+  tqInfo("vgId:%d remove pHandle:%p,ret:%d consumer Id:0x%" PRIx64, vgId, pHandle, ret, pHandle->consumerId);
 
   if(pHandle->msg != NULL) {
 //    tqPushDataRsp(pHandle, vgId);

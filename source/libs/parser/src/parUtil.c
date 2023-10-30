@@ -37,6 +37,8 @@ static char* getSyntaxErrFormat(int32_t errCode) {
       return "Column ambiguously defined: %s";
     case TSDB_CODE_PAR_WRONG_VALUE_TYPE:
       return "Invalid value type: %s";
+    case TSDB_CODE_PAR_INVALID_VARBINARY:
+      return "Invalid varbinary value: %s";
     case TSDB_CODE_PAR_ILLEGAL_USE_AGG_FUNCTION:
       return "There mustn't be aggregation";
     case TSDB_CODE_PAR_WRONG_NUMBER_OF_SELECT:
@@ -138,7 +140,7 @@ static char* getSyntaxErrFormat(int32_t errCode) {
     case TSDB_CODE_PAR_CANNOT_DROP_PRIMARY_KEY:
       return "Primary timestamp column cannot be dropped";
     case TSDB_CODE_PAR_INVALID_MODIFY_COL:
-      return "Only binary/nchar/geometry column length could be modified, and the length can only be increased, not decreased";
+      return "Only varbinary/binary/nchar/geometry column length could be modified, and the length can only be increased, not decreased";
     case TSDB_CODE_PAR_INVALID_TBNAME:
       return "Invalid tbname pseudo column";
     case TSDB_CODE_PAR_INVALID_FUNCTION_NAME:
@@ -182,6 +184,8 @@ static char* getSyntaxErrFormat(int32_t errCode) {
       return "No valid function in window query";
     case TSDB_CODE_PAR_INVALID_OPTR_USAGE:
       return "Invalid usage of expr: %s";
+    case TSDB_CODE_PAR_INVALID_IP_RANGE:
+      return "invalid ip range";
     case TSDB_CODE_OUT_OF_MEMORY:
       return "Out of memory";
     default:
@@ -308,7 +312,7 @@ int32_t trimString(const char* src, int32_t len, char* dst, int32_t dlen) {
         dst[j] = '\'';
       } else if (src[k + 1] == '"') {
         dst[j] = '"';
-      } else if (src[k + 1] == '%' || src[k + 1] == '_') {
+      } else if (src[k + 1] == '%' || src[k + 1] == '_' || src[k + 1] == 'x') {
         dst[j++] = src[k];
         dst[j] = src[k + 1];
       } else {
@@ -692,7 +696,7 @@ int32_t buildCatalogReq(const SParseMetaCache* pMetaCache, SCatalogReq* pCatalog
 }
 
 
-SNode* createSelectStmtImpl(bool isDistinct, SNodeList* pProjectionList, SNode* pTable) {
+SNode* createSelectStmtImpl(bool isDistinct, SNodeList* pProjectionList, SNode* pTable, SNodeList* pHint) {
   SSelectStmt* select = (SSelectStmt*)nodesMakeNode(QUERY_NODE_SELECT_STMT);
   if (NULL == select) {
     return NULL;
@@ -704,6 +708,7 @@ SNode* createSelectStmtImpl(bool isDistinct, SNodeList* pProjectionList, SNode* 
   select->timeLineResMode = select->isDistinct ? TIME_LINE_NONE : TIME_LINE_GLOBAL;
   select->onlyHasKeepOrderFunc = true;
   select->timeRange = TSWINDOW_INITIALIZER;
+  select->pHint = pHint;
   return (SNode*)select;
 }
 
@@ -1142,3 +1147,20 @@ void destoryParseMetaCache(SParseMetaCache* pMetaCache, bool request) {
   taosHashCleanup(pMetaCache->pTableIndex);
   taosHashCleanup(pMetaCache->pTableCfg);
 }
+
+int64_t int64SafeSub(int64_t a, int64_t b) {
+  int64_t res = (uint64_t)a - (uint64_t)b;
+
+  if (a >= 0 && b < 0) {
+    if ((uint64_t)res > (uint64_t)INT64_MAX) {
+      // overflow
+      res = INT64_MAX;
+    }
+  } else if (a < 0 && b > 0 && res >= 0) {
+    // underflow
+    res = INT64_MIN;
+  }
+  return res;
+}
+
+

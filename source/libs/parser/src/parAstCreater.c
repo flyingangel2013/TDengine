@@ -13,8 +13,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-
 #include <regex.h>
+#include <uv.h>
 
 #include "parAst.h"
 #include "parUtil.h"
@@ -348,6 +348,135 @@ SNode* createValueNode(SAstCreateContext* pCxt, int32_t dataType, const SToken* 
   return (SNode*)val;
 }
 
+bool addHintNodeToList(SAstCreateContext* pCxt, SNodeList** ppHintList, EHintOption opt, SToken* paramList,
+                       int32_t paramNum) {
+  void* value = NULL;
+  switch (opt) {
+    case HINT_BATCH_SCAN:
+    case HINT_NO_BATCH_SCAN: {
+      if (paramNum > 0) {
+        return true;
+      }
+      break;
+    }
+    case HINT_SORT_FOR_GROUP:
+      if (paramNum > 0) return true;
+      break;
+    default:
+      return true;
+  }
+
+  SHintNode* hint = (SHintNode*)nodesMakeNode(QUERY_NODE_HINT);
+  CHECK_OUT_OF_MEM(hint);
+  hint->option = opt;
+  hint->value = value;
+
+  if (NULL == *ppHintList) {
+    *ppHintList = nodesMakeList();
+    CHECK_OUT_OF_MEM(*ppHintList);
+  }
+
+  pCxt->errCode = nodesListStrictAppend(*ppHintList, (SNode*)hint);
+  if (pCxt->errCode) {
+    return true;
+  }
+
+  return false;
+}
+
+SNodeList* createHintNodeList(SAstCreateContext* pCxt, const SToken* pLiteral) {
+  CHECK_PARSER_STATUS(pCxt);
+  if (NULL == pLiteral || pLiteral->n <= 5) {
+    return NULL;
+  }
+  SNodeList*  pHintList = NULL;
+  char*       hint = strndup(pLiteral->z + 3, pLiteral->n - 5);
+  int32_t     i = 0;
+  bool        quit = false;
+  bool        inParamList = false;
+  bool        lastComma = false;
+  EHintOption opt = 0;
+  int32_t     paramNum = 0;
+  SToken      paramList[10];
+  while (!quit) {
+    SToken t0 = {0};
+    if (hint[i] == 0) {
+      break;
+    }
+    t0.n = tGetToken(&hint[i], &t0.type);
+    t0.z = hint + i;
+    i += t0.n;
+
+    switch (t0.type) {
+      case TK_BATCH_SCAN:
+        lastComma = false;
+        if (0 != opt || inParamList) {
+          quit = true;
+          break;
+        }
+        opt = HINT_BATCH_SCAN;
+        break;
+      case TK_NO_BATCH_SCAN:
+        lastComma = false;
+        if (0 != opt || inParamList) {
+          quit = true;
+          break;
+        }
+        opt = HINT_NO_BATCH_SCAN;
+        break;
+      case TK_SORT_FOR_GROUP:
+        lastComma = false;
+        if (0 != opt || inParamList) {
+          quit = true;
+          break;
+        }
+        opt = HINT_SORT_FOR_GROUP;
+        break;
+      case TK_NK_LP:
+        lastComma = false;
+        if (0 == opt || inParamList) {
+          quit = true;
+        }
+        inParamList = true;
+        break;
+      case TK_NK_RP:
+        lastComma = false;
+        if (0 == opt || !inParamList) {
+          quit = true;
+        } else {
+          quit = addHintNodeToList(pCxt, &pHintList, opt, paramList, paramNum);
+          inParamList = false;
+          paramNum = 0;
+          opt = 0;
+        }
+        break;
+      case TK_NK_ID:
+        lastComma = false;
+        if (0 == opt || !inParamList) {
+          quit = true;
+        } else {
+          paramList[paramNum++] = t0;
+        }
+        break;
+      case TK_NK_COMMA:
+        if (lastComma) {
+          quit = true;
+        }
+        lastComma = true;
+        break;
+      case TK_NK_SPACE:
+        break;
+      default:
+        lastComma = false;
+        quit = true;
+        break;
+    }
+  }
+
+  taosMemoryFree(hint);
+  return pHintList;
+}
+
 SNode* createIdentifierValueNode(SAstCreateContext* pCxt, SToken* pLiteral) {
   trimEscape(pLiteral);
   return createValueNode(pCxt, TSDB_DATA_TYPE_BINARY, pLiteral);
@@ -518,7 +647,7 @@ SNode* createCastFunctionNode(SAstCreateContext* pCxt, SNode* pExpr, SDataType d
   CHECK_OUT_OF_MEM(func);
   strcpy(func->functionName, "cast");
   func->node.resType = dt;
-  if (TSDB_DATA_TYPE_VARCHAR == dt.type || TSDB_DATA_TYPE_GEOMETRY == dt.type) {
+  if (TSDB_DATA_TYPE_VARCHAR == dt.type || TSDB_DATA_TYPE_GEOMETRY == dt.type || TSDB_DATA_TYPE_VARBINARY == dt.type) {
     func->node.resType.bytes = func->node.resType.bytes + VARSTR_HEADER_SIZE;
   } else if (TSDB_DATA_TYPE_NCHAR == dt.type) {
     func->node.resType.bytes = func->node.resType.bytes * TSDB_NCHAR_SIZE + VARSTR_HEADER_SIZE;
@@ -845,11 +974,19 @@ SNode* addFillClause(SAstCreateContext* pCxt, SNode* pStmt, SNode* pFill) {
   return pStmt;
 }
 
-SNode* createSelectStmt(SAstCreateContext* pCxt, bool isDistinct, SNodeList* pProjectionList, SNode* pTable) {
+SNode* createSelectStmt(SAstCreateContext* pCxt, bool isDistinct, SNodeList* pProjectionList, SNode* pTable,
+                        SNodeList* pHint) {
   CHECK_PARSER_STATUS(pCxt);
-  SNode* select = createSelectStmtImpl(isDistinct, pProjectionList, pTable);
+  SNode* select = createSelectStmtImpl(isDistinct, pProjectionList, pTable, pHint);
   CHECK_OUT_OF_MEM(select);
-  return select;  
+  return select;
+}
+
+SNode* setSelectStmtTagMode(SAstCreateContext* pCxt, SNode* pStmt, bool bSelectTags) {
+  if (pStmt && QUERY_NODE_SELECT_STMT == nodeType(pStmt)) {
+    ((SSelectStmt*)pStmt)->tagScan = bSelectTags;
+  }
+  return pStmt;
 }
 
 static void setSubquery(SNode* pStmt) {
@@ -1062,6 +1199,10 @@ static SNode* setDatabaseOptionImpl(SAstCreateContext* pCxt, SNode* pOptions, ED
         pCxt->errCode = TSDB_CODE_PAR_SYNTAX_ERROR;
       }
       nodesDestroyNode((SNode*)pNode);
+      break;
+    }
+    case DB_OPTION_KEEP_TIME_OFFSET: {
+      pDbOptions->keepTimeOffset = taosStr2Int32(((SToken*)pVal)->z, NULL, 10);
       break;
     }
     default:
@@ -1415,6 +1556,15 @@ SNode* createShowStmt(SAstCreateContext* pCxt, ENodeType type) {
   return (SNode*)pStmt;
 }
 
+SNode* setShowKind(SAstCreateContext* pCxt, SNode* pStmt, EShowKind showKind) {
+  if (pStmt == NULL) {
+    return NULL;
+  } 
+  SShowStmt* pShow = (SShowStmt*)pStmt;
+  pShow->showKind = showKind;
+  return pStmt;
+}
+
 SNode* createShowStmtWithCond(SAstCreateContext* pCxt, ENodeType type, SNode* pDbName, SNode* pTbName,
                               EOperatorType tableCondType) {
   CHECK_PARSER_STATUS(pCxt);
@@ -1429,6 +1579,19 @@ SNode* createShowStmtWithCond(SAstCreateContext* pCxt, ENodeType type, SNode* pD
   pStmt->pTbName = pTbName;
   pStmt->tableCondType = tableCondType;
   return (SNode*)pStmt;
+}
+
+SNode* createShowTablesStmt(SAstCreateContext* pCxt, SShowTablesOption option, SNode* pTbName, EOperatorType tableCondType) {
+  CHECK_PARSER_STATUS(pCxt);
+  SNode* pDbName = NULL;
+  if (option.dbName.type == TK_NK_NIL) {
+    pDbName = createDefaultDatabaseCondValue(pCxt);
+  } else {
+    pDbName = createIdentifierValueNode(pCxt, &option.dbName);
+  }
+  SNode* pStmt = createShowStmtWithCond(pCxt, QUERY_NODE_SHOW_TABLES_STMT, pDbName, pTbName, tableCondType);
+  setShowKind(pCxt, pStmt, option.kind);
+  return pStmt;
 }
 
 SNode* createShowCreateDatabaseStmt(SAstCreateContext* pCxt, SToken* pDbName) {
@@ -1527,6 +1690,84 @@ SNode* createShowTableTagsStmt(SAstCreateContext* pCxt, SNode* pTbName, SNode* p
   return (SNode*)pStmt;
 }
 
+static int32_t getIpV4RangeFromWhitelistItem(char* ipRange, SIpV4Range* pIpRange) {
+  int32_t code = TSDB_CODE_SUCCESS;
+  char*   ipCopy = taosStrdup(ipRange);
+  char*   slash = strchr(ipCopy, '/');
+  if (slash) {
+    *slash = '\0';
+    struct in_addr addr;
+    if (uv_inet_pton(AF_INET, ipCopy, &addr) == 0) {
+      int prefix = atoi(slash + 1);
+      if (prefix < 0 || prefix > 32) {
+        code = TSDB_CODE_PAR_INVALID_IP_RANGE;
+      } else {
+        pIpRange->ip = addr.s_addr;
+        pIpRange->mask = prefix;
+        code = TSDB_CODE_SUCCESS;
+      }
+    } else {
+      code = TSDB_CODE_PAR_INVALID_IP_RANGE;
+    }
+  } else {
+    struct in_addr addr;
+    if (uv_inet_pton(AF_INET, ipCopy, &addr) == 0) {
+      pIpRange->ip = addr.s_addr;
+      pIpRange->mask = 32;
+      code = TSDB_CODE_SUCCESS;
+    } else {
+      code = TSDB_CODE_PAR_INVALID_IP_RANGE;
+    }
+  }
+
+  taosMemoryFreeClear(ipCopy);
+  return code;
+}
+
+static int32_t fillIpRangesFromWhiteList(SAstCreateContext* pCxt, SNodeList* pIpRangesNodeList, SIpV4Range* pIpRanges) {
+  int32_t i = 0;
+  int32_t code = 0;
+
+  SNode* pNode = NULL;
+  FOREACH(pNode, pIpRangesNodeList) {
+    if (QUERY_NODE_VALUE != nodeType(pNode)) {
+      pCxt->errCode = generateSyntaxErrMsg(&pCxt->msgBuf, TSDB_CODE_PAR_INVALID_IP_RANGE);
+      return TSDB_CODE_PAR_INVALID_IP_RANGE;
+    }
+    SValueNode* pValNode = (SValueNode*)(pNode);
+    code = getIpV4RangeFromWhitelistItem(pValNode->literal, pIpRanges + i);
+    ++i;
+    if (code != TSDB_CODE_SUCCESS) {
+      pCxt->errCode = generateSyntaxErrMsgExt(&pCxt->msgBuf, code, "Invalid IP range %s", pValNode->literal);
+      return code;
+    }
+  }
+  return TSDB_CODE_SUCCESS;
+}
+
+SNode* addCreateUserStmtWhiteList(SAstCreateContext* pCxt, SNode* pCreateUserStmt, SNodeList* pIpRangesNodeList) {
+  if (NULL == pCreateUserStmt || NULL == pIpRangesNodeList) {
+    return pCreateUserStmt;
+  }
+
+  ((SCreateUserStmt*)pCreateUserStmt)->pNodeListIpRanges = pIpRangesNodeList;
+  SCreateUserStmt* pCreateUser = (SCreateUserStmt*)pCreateUserStmt;
+  pCreateUser->numIpRanges = LIST_LENGTH(pIpRangesNodeList);
+  pCreateUser->pIpRanges = taosMemoryMalloc(pCreateUser->numIpRanges * sizeof(SIpV4Range));
+  if (NULL == pCreateUser->pIpRanges) {
+    pCxt->errCode = TSDB_CODE_OUT_OF_MEMORY;
+    nodesDestroyNode(pCreateUserStmt);
+    return NULL;
+  }
+
+  int32_t code = fillIpRangesFromWhiteList(pCxt, pIpRangesNodeList, pCreateUser->pIpRanges);
+  if (TSDB_CODE_SUCCESS != code) {
+    nodesDestroyNode(pCreateUserStmt);
+    return NULL;
+  }
+  return pCreateUserStmt;
+}
+
 SNode* createCreateUserStmt(SAstCreateContext* pCxt, SToken* pUserName, const SToken* pPassword, int8_t sysinfo) {
   CHECK_PARSER_STATUS(pCxt);
   char password[TSDB_USET_PASSWORD_LEN + 3] = {0};
@@ -1541,7 +1782,7 @@ SNode* createCreateUserStmt(SAstCreateContext* pCxt, SToken* pUserName, const ST
   return (SNode*)pStmt;
 }
 
-SNode* createAlterUserStmt(SAstCreateContext* pCxt, SToken* pUserName, int8_t alterType, const SToken* pVal) {
+SNode* createAlterUserStmt(SAstCreateContext* pCxt, SToken* pUserName, int8_t alterType, void* pAlterInfo) {
   CHECK_PARSER_STATUS(pCxt);
   if (!checkUserName(pCxt, pUserName)) {
     return NULL;
@@ -1552,7 +1793,8 @@ SNode* createAlterUserStmt(SAstCreateContext* pCxt, SToken* pUserName, int8_t al
   pStmt->alterType = alterType;
   switch (alterType) {
     case TSDB_ALTER_USER_PASSWD: {
-      char password[TSDB_USET_PASSWORD_LEN] = {0};
+      char    password[TSDB_USET_PASSWORD_LEN] = {0};
+      SToken* pVal = pAlterInfo;
       if (!checkPassword(pCxt, pVal, password)) {
         nodesDestroyNode((SNode*)pStmt);
         return NULL;
@@ -1560,12 +1802,35 @@ SNode* createAlterUserStmt(SAstCreateContext* pCxt, SToken* pUserName, int8_t al
       strcpy(pStmt->password, password);
       break;
     }
-    case TSDB_ALTER_USER_ENABLE:
+    case TSDB_ALTER_USER_ENABLE: {
+      SToken* pVal = pAlterInfo;
       pStmt->enable = taosStr2Int8(pVal->z, NULL, 10);
       break;
-    case TSDB_ALTER_USER_SYSINFO:
+    }
+    case TSDB_ALTER_USER_SYSINFO: {
+      SToken* pVal = pAlterInfo;
       pStmt->sysinfo = taosStr2Int8(pVal->z, NULL, 10);
       break;
+    }
+    case TSDB_ALTER_USER_ADD_WHITE_LIST:
+    case TSDB_ALTER_USER_DROP_WHITE_LIST: {
+      SNodeList* pIpRangesNodeList = pAlterInfo;
+      pStmt->pNodeListIpRanges = pIpRangesNodeList;
+      pStmt->numIpRanges = LIST_LENGTH(pIpRangesNodeList);
+      pStmt->pIpRanges = taosMemoryMalloc(pStmt->numIpRanges * sizeof(SIpV4Range));
+      if (NULL == pStmt->pIpRanges) {
+        pCxt->errCode = TSDB_CODE_OUT_OF_MEMORY;
+        nodesDestroyNode((SNode*)pStmt);
+        return NULL;
+      }
+
+      int32_t code = fillIpRangesFromWhiteList(pCxt, pIpRangesNodeList, pStmt->pIpRanges);
+      if (TSDB_CODE_SUCCESS != code) {
+        nodesDestroyNode((SNode*)pStmt);
+        return NULL;
+      }
+      break;
+    }
     default:
       break;
   }
@@ -1642,8 +1907,23 @@ SNode* createCreateIndexStmt(SAstCreateContext* pCxt, EIndexType type, bool igno
   CHECK_OUT_OF_MEM(pStmt);
   pStmt->indexType = type;
   pStmt->ignoreExists = ignoreExists;
-  snprintf(pStmt->indexDbName, sizeof(pStmt->indexDbName), "%s", ((SRealTableNode*)pIndexName)->table.dbName);
-  snprintf(pStmt->indexName, sizeof(pStmt->indexName), "%s", ((SRealTableNode*)pIndexName)->table.tableName);
+
+  SRealTableNode* pFullTable = (SRealTableNode*)pRealTable;
+  if (strlen(pFullTable->table.dbName) == 0) {
+    // no db specified,
+    if (pCxt->pQueryCxt->db == NULL) {
+      pCxt->errCode = generateSyntaxErrMsg(&pCxt->msgBuf, TSDB_CODE_PAR_DB_NOT_SPECIFIED);
+      nodesDestroyNode(pIndexName);
+      nodesDestroyNode(pRealTable);
+      nodesDestroyNode(pOptions);
+      return NULL;
+    } else {
+      snprintf(pStmt->indexDbName, sizeof(pStmt->indexDbName), "%s", pCxt->pQueryCxt->db);
+    }
+  } else {
+    snprintf(pStmt->indexDbName, sizeof(pStmt->indexDbName), "%s", pFullTable->table.dbName);
+  }
+  snprintf(pStmt->indexName, sizeof(pStmt->indexName), "%s", ((SColumnNode*)pIndexName)->colName);
   snprintf(pStmt->dbName, sizeof(pStmt->dbName), "%s", ((SRealTableNode*)pRealTable)->table.dbName);
   snprintf(pStmt->tableName, sizeof(pStmt->tableName), "%s", ((SRealTableNode*)pRealTable)->table.tableName);
   nodesDestroyNode(pIndexName);
@@ -1760,8 +2040,7 @@ SNode* createDropTopicStmt(SAstCreateContext* pCxt, bool ignoreNotExists, SToken
   return (SNode*)pStmt;
 }
 
-SNode* createDropCGroupStmt(SAstCreateContext* pCxt, bool ignoreNotExists, SToken* pCGroupId,
-                            SToken* pTopicName) {
+SNode* createDropCGroupStmt(SAstCreateContext* pCxt, bool ignoreNotExists, SToken* pCGroupId, SToken* pTopicName) {
   CHECK_PARSER_STATUS(pCxt);
   if (!checkTopicName(pCxt, pTopicName)) {
     return NULL;
@@ -2028,10 +2307,13 @@ SNode* createBalanceVgroupStmt(SAstCreateContext* pCxt) {
   return (SNode*)pStmt;
 }
 
-SNode* createBalanceVgroupLeaderStmt(SAstCreateContext* pCxt) {
+SNode* createBalanceVgroupLeaderStmt(SAstCreateContext* pCxt, const SToken* pVgId) {
   CHECK_PARSER_STATUS(pCxt);
   SBalanceVgroupLeaderStmt* pStmt = (SBalanceVgroupLeaderStmt*)nodesMakeNode(QUERY_NODE_BALANCE_VGROUP_LEADER_STMT);
   CHECK_OUT_OF_MEM(pStmt);
+  if (NULL != pVgId && NULL != pVgId->z) {
+    pStmt->vgId = taosStr2Int32(pVgId->z, NULL, 10);
+  }
   return (SNode*)pStmt;
 }
 

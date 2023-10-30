@@ -63,6 +63,29 @@ static void dmConvertErrCode(tmsg_t msgType) {
     terrno = TSDB_CODE_VND_STOPPED;
   }
 }
+static void dmUpdateRpcIpWhite(SDnodeData *pData, void *pTrans, SRpcMsg *pRpc) {
+  SUpdateIpWhite ipWhite = {0};  // aosMemoryCalloc(1, sizeof(SUpdateIpWhite));
+  tDeserializeSUpdateIpWhite(pRpc->pCont, pRpc->contLen, &ipWhite);
+
+  rpcSetIpWhite(pTrans, &ipWhite);
+  pData->ipWhiteVer = ipWhite.ver;
+
+  tFreeSUpdateIpWhiteReq(&ipWhite);
+
+  rpcFreeCont(pRpc->pCont);
+}
+static bool dmIsForbiddenIp(int8_t forbidden, char *user, uint32_t clientIp) {
+  if (forbidden) {
+    SIpV4Range range = {.ip = clientIp, .mask = 32};
+    char       buf[36] = {0};
+
+    rpcUtilSIpRangeToStr(&range, buf);
+    dError("User:%s host:%s not in ip white list", user, buf);
+    return true;
+  } else {
+    return false;
+  }
+}
 static void dmProcessRpcMsg(SDnode *pDnode, SRpcMsg *pRpc, SEpSet *pEpSet) {
   SDnodeTrans  *pTrans = &pDnode->trans;
   int32_t       code = -1;
@@ -78,6 +101,12 @@ static void dmProcessRpcMsg(SDnode *pDnode, SRpcMsg *pRpc, SEpSet *pEpSet) {
   taosVersionStrToInt(version, &svrVer);
   if (0 != taosCheckVersionCompatible(pRpc->info.cliVer, svrVer, 3)) {
     dError("Version not compatible, cli ver: %d, svr ver: %d", pRpc->info.cliVer, svrVer);
+    goto _OVER;
+  }
+
+  bool isForbidden = dmIsForbiddenIp(pRpc->info.forbiddenIp, pRpc->info.conn.user, pRpc->info.conn.clientIp);
+  if (isForbidden) {
+    terrno = TSDB_CODE_IP_NOT_IN_WHITE_LIST;
     goto _OVER;
   }
 
@@ -97,6 +126,10 @@ static void dmProcessRpcMsg(SDnode *pDnode, SRpcMsg *pRpc, SEpSet *pEpSet) {
         dmSetMnodeEpSet(&pDnode->data, pEpSet);
       }
       break;
+    case TDMT_MND_RETRIEVE_IP_WHITE_RSP: {
+      dmUpdateRpcIpWhite(&pDnode->data, pTrans->serverRpc, pRpc);
+      return;
+    } break;
     default:
       break;
   }
@@ -272,7 +305,7 @@ static bool rpcRfp(int32_t code, tmsg_t msgType) {
       code == TSDB_CODE_SYN_RESTORING || code == TSDB_CODE_VND_STOPPED || code == TSDB_CODE_APP_IS_STARTING ||
       code == TSDB_CODE_APP_IS_STOPPING) {
     if (msgType == TDMT_SCH_QUERY || msgType == TDMT_SCH_MERGE_QUERY || msgType == TDMT_SCH_FETCH ||
-        msgType == TDMT_SCH_MERGE_FETCH) {
+        msgType == TDMT_SCH_MERGE_FETCH || msgType == TDMT_SCH_TASK_NOTIFY) {
       return false;
     }
     return true;
@@ -299,7 +332,7 @@ int32_t dmInitClient(SDnode *pDnode) {
   rpcInit.retryMinInterval = tsRedirectPeriod;
   rpcInit.retryStepFactor = tsRedirectFactor;
   rpcInit.retryMaxInterval = tsRedirectMaxPeriod;
-  rpcInit.retryMaxTimouet = tsMaxRetryWaitTime;
+  rpcInit.retryMaxTimeout = tsMaxRetryWaitTime;
 
   rpcInit.failFastInterval = 5000;  // interval threshold(ms)
   rpcInit.failFastThreshold = 3;    // failed threshold
@@ -372,6 +405,7 @@ void dmCleanupServer(SDnode *pDnode) {
 SMsgCb dmGetMsgcb(SDnode *pDnode) {
   SMsgCb msgCb = {
       .clientRpc = pDnode->trans.clientRpc,
+      .serverRpc = pDnode->trans.serverRpc,
       .sendReqFp = dmSendReq,
       .sendRspFp = dmSendRsp,
       .registerBrokenLinkArgFp = dmRegisterBrokenLinkArg,

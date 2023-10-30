@@ -244,7 +244,7 @@ static void doRemoveLostConsumers(SMqRebOutputObj *pOutput, SHashObj *pHash, con
 
         SMqRebOutputVg outputVg = {.oldConsumerId = consumerId, .newConsumerId = -1, .pVgEp = pVgEp};
         taosHashPut(pHash, &pVgEp->vgId, sizeof(int32_t), &outputVg, sizeof(SMqRebOutputVg));
-        mInfo("sub:%s mq re-balance remove vgId:%d from consumer:%" PRIx64, pSubKey, pVgEp->vgId, consumerId);
+        mInfo("sub:%s mq re-balance remove vgId:%d from consumer:0x%" PRIx64, pSubKey, pVgEp->vgId, consumerId);
       }
 
       taosArrayDestroy(pConsumerEp->vgs);
@@ -361,8 +361,71 @@ static void transferVgroupsForConsumers(SMqRebOutputObj *pOutput, SHashObj *pHas
   }
 }
 
+static int32_t processRemoveAddVgs(SMnode *pMnode, SMqRebOutputObj *pOutput){
+  int32_t totalVgNum = 0;
+  SVgObj* pVgroup = NULL;
+  void* pIter = NULL;
+  SArray* newVgs = taosArrayInit(0, POINTER_BYTES);
+  while (1) {
+    pIter = sdbFetch(pMnode->pSdb, SDB_VGROUP, pIter, (void**)&pVgroup);
+    if (pIter == NULL) {
+      break;
+    }
+
+    if (!mndVgroupInDb(pVgroup, pOutput->pSub->dbUid)) {
+      sdbRelease(pMnode->pSdb, pVgroup);
+      continue;
+    }
+
+    totalVgNum++;
+    SMqVgEp* pVgEp = taosMemoryMalloc(sizeof(SMqVgEp));
+    pVgEp->epSet = mndGetVgroupEpset(pMnode, pVgroup);
+    pVgEp->vgId = pVgroup->vgId;
+    taosArrayPush(newVgs, &pVgEp);
+    sdbRelease(pMnode->pSdb, pVgroup);
+  }
+
+  pIter = NULL;
+  while (1) {
+    pIter = taosHashIterate(pOutput->pSub->consumerHash, pIter);
+    if (pIter == NULL) break;
+    SMqConsumerEp *pConsumerEp = (SMqConsumerEp *)pIter;
+
+    int32_t j = 0;
+    while (j < taosArrayGetSize(pConsumerEp->vgs)) {
+      SMqVgEp *pVgEp = taosArrayGetP(pConsumerEp->vgs, j);
+      bool find = false;
+      for(int32_t k = 0; k < taosArrayGetSize(newVgs); k++){
+        SMqVgEp *pnewVgEp = taosArrayGetP(newVgs, k);
+        if(pVgEp->vgId == pnewVgEp->vgId){
+          tDeleteSMqVgEp(pnewVgEp);
+          taosArrayRemove(newVgs, k);
+          find = true;
+          break;
+        }
+      }
+      if(!find){
+        mInfo("processRemoveAddVgs old vgId:%d", pVgEp->vgId);
+        tDeleteSMqVgEp(pVgEp);
+        taosArrayRemove(pConsumerEp->vgs, j);
+        continue;
+      }
+      j++;
+    }
+  }
+
+  if(taosArrayGetSize(pOutput->pSub->unassignedVgs) == 0 && taosArrayGetSize(newVgs) != 0){
+    taosArrayAddAll(pOutput->pSub->unassignedVgs, newVgs);
+    mInfo("processRemoveAddVgs add new vg num:%d", (int)taosArrayGetSize(newVgs));
+    taosArrayDestroy(newVgs);
+  }else{
+    taosArrayDestroyP(newVgs, (FDelete)tDeleteSMqVgEp);
+  }
+  return totalVgNum;
+}
+
 static int32_t mndDoRebalance(SMnode *pMnode, const SMqRebInputObj *pInput, SMqRebOutputObj *pOutput) {
-  int32_t     totalVgNum = pOutput->pSub->vgNum;
+  int32_t totalVgNum = processRemoveAddVgs(pMnode, pOutput);
   const char *pSubKey = pOutput->pSub->key;
 
   int32_t numOfRemoved = taosArrayGetSize(pInput->pRebInfo->removedConsumers);
@@ -489,7 +552,7 @@ static int32_t mndDoRebalance(SMnode *pMnode, const SMqRebInputObj *pInput, SMqR
             SMqVgEp *pVgEp = taosArrayGetP(pConsumerEpNew->vgs, i);
             if(pVgEp->vgId == d1->vgId){
               jump = true;
-              mInfo("pSub->offsetRows jump, because consumer id:%"PRIx64 " and vgId:%d not change", pConsumerEp->consumerId, pVgEp->vgId);
+              mInfo("pSub->offsetRows jump, because consumer id:0x%"PRIx64 " and vgId:%d not change", pConsumerEp->consumerId, pVgEp->vgId);
               break;
             }
           }
@@ -553,13 +616,17 @@ static int32_t mndPersistRebResult(SMnode *pMnode, SRpcMsg *pMsg, const SMqRebOu
     }
   }
 
-  STrans *pTrans = mndTransCreate(pMnode, TRN_POLICY_ROLLBACK, TRN_CONFLICT_DB_INSIDE, pMsg, "tmq-reb");
+  char topic[TSDB_TOPIC_FNAME_LEN] = {0};
+  char cgroup[TSDB_CGROUP_LEN] = {0};
+  mndSplitSubscribeKey(pOutput->pSub->key, topic, cgroup, true);
+
+  STrans *pTrans = mndTransCreate(pMnode, TRN_POLICY_ROLLBACK, TRN_CONFLICT_TOPIC_INSIDE, pMsg, "tmq-reb");
   if (pTrans == NULL) {
     nodesDestroyNode((SNode*)pPlan);
     return -1;
   }
 
-  mndTransSetDbName(pTrans, pOutput->pSub->dbName, NULL);
+  mndTransSetDbName(pTrans, topic, cgroup);
   if (mndTransCheckConflict(pMnode, pTrans) != 0) {
     mndTransDrop(pTrans);
     nodesDestroyNode((SNode*)pPlan);
@@ -586,10 +653,6 @@ static int32_t mndPersistRebResult(SMnode *pMnode, SRpcMsg *pMsg, const SMqRebOu
     mndTransDrop(pTrans);
     return -1;
   }
-
-  char topic[TSDB_TOPIC_FNAME_LEN] = {0};
-  char cgroup[TSDB_CGROUP_LEN] = {0};
-  mndSplitSubscribeKey(pOutput->pSub->key, topic, cgroup, true);
 
   // 3. commit log: consumer to update status and epoch
   // 3.1 set touched consumer
@@ -771,6 +834,29 @@ static int32_t mndProcessRebalanceReq(SRpcMsg *pMsg) {
   return 0;
 }
 
+static int32_t sendDeleteSubToVnode(SMqSubscribeObj *pSub, STrans *pTrans){
+  // iter all vnode to delete handle
+  int32_t sz = taosArrayGetSize(pSub->unassignedVgs);
+  for (int32_t i = 0; i < sz; i++) {
+    SMqVgEp       *pVgEp = taosArrayGetP(pSub->unassignedVgs, i);
+    SMqVDeleteReq *pReq = taosMemoryCalloc(1, sizeof(SMqVDeleteReq));
+    pReq->head.vgId = htonl(pVgEp->vgId);
+    pReq->vgId = pVgEp->vgId;
+    pReq->consumerId = -1;
+    memcpy(pReq->subKey, pSub->key, TSDB_SUBSCRIBE_KEY_LEN);
+    STransAction action = {0};
+    action.epSet = pVgEp->epSet;
+    action.pCont = pReq;
+    action.contLen = sizeof(SMqVDeleteReq);
+    action.msgType = TDMT_VND_TMQ_DELETE_SUB;
+    if (mndTransAppendRedoAction(pTrans, &action) != 0) {
+      taosMemoryFree(pReq);
+      return -1;
+    }
+  }
+  return 0;
+}
+
 static int32_t mndProcessDropCgroupReq(SRpcMsg *pMsg) {
   SMnode          *pMnode = pMsg->info.node;
   SMDropCgroupReq  dropReq = {0};
@@ -802,6 +888,19 @@ static int32_t mndProcessDropCgroupReq(SRpcMsg *pMsg) {
     goto end;
   }
 
+  pTrans = mndTransCreate(pMnode, TRN_POLICY_ROLLBACK, TRN_CONFLICT_TOPIC_INSIDE, pMsg, "drop-cgroup");
+  if (pTrans == NULL) {
+    mError("cgroup: %s on topic:%s, failed to drop since %s", dropReq.cgroup, dropReq.topic, terrstr());
+    code = -1;
+    goto end;
+  }
+
+  mndTransSetDbName(pTrans, dropReq.topic, dropReq.cgroup);
+  code = mndTransCheckConflict(pMnode, pTrans);
+  if (code != 0) {
+    goto end;
+  }
+
   void           *pIter = NULL;
   SMqConsumerObj *pConsumer;
   while (1) {
@@ -811,19 +910,17 @@ static int32_t mndProcessDropCgroupReq(SRpcMsg *pMsg) {
     }
 
     if (strcmp(dropReq.cgroup, pConsumer->cgroup) == 0) {
-      mndDropConsumerFromSdb(pMnode, pConsumer->consumerId);
+      mndDropConsumerFromSdb(pMnode, pConsumer->consumerId, &pMsg->info);
     }
     sdbRelease(pMnode->pSdb, pConsumer);
   }
 
-  pTrans = mndTransCreate(pMnode, TRN_POLICY_ROLLBACK, TRN_CONFLICT_NOTHING, pMsg, "drop-cgroup");
-  if (pTrans == NULL) {
-    mError("cgroup: %s on topic:%s, failed to drop since %s", dropReq.cgroup, dropReq.topic, terrstr());
-    code = -1;
+  mInfo("trans:%d, used to drop cgroup:%s on topic %s", pTrans->id, dropReq.cgroup, dropReq.topic);
+
+  code = sendDeleteSubToVnode(pSub, pTrans);
+  if (code != 0) {
     goto end;
   }
-
-  mInfo("trans:%d, used to drop cgroup:%s on topic %s", pTrans->id, dropReq.cgroup, dropReq.topic);
 
   if (mndSetDropSubCommitLogs(pMnode, pTrans, pSub) < 0) {
     mError("cgroup %s on topic:%s, failed to drop since %s", dropReq.cgroup, dropReq.topic, terrstr());
@@ -841,7 +938,11 @@ end:
   mndReleaseSubscribe(pMnode, pSub);
   mndTransDrop(pTrans);
 
-  return code;
+  if (code != 0) {
+    mError("cgroup %s on topic:%s, failed to drop", dropReq.cgroup, dropReq.topic);
+    return code;
+  }
+  return TSDB_CODE_ACTION_IN_PROGRESS;
 }
 
 void mndCleanupSubscribe(SMnode *pMnode) {}
@@ -1019,8 +1120,8 @@ int32_t mndGetGroupNumByTopic(SMnode *pMnode, const char *topicName) {
     if (pIter == NULL) break;
 
 
-    char topic[TSDB_TOPIC_FNAME_LEN];
-    char cgroup[TSDB_CGROUP_LEN];
+    char topic[TSDB_TOPIC_FNAME_LEN] = {0};
+    char cgroup[TSDB_CGROUP_LEN] = {0};
     mndSplitSubscribeKey(pSub->key, topic, cgroup, true);
     if (strcmp(topic, topicName) != 0) {
       sdbRelease(pSdb, pSub);
@@ -1055,36 +1156,35 @@ int32_t mndSetDropSubCommitLogs(SMnode *pMnode, STrans *pTrans, SMqSubscribeObj 
   return 0;
 }
 
-int32_t mndDropSubByDB(SMnode *pMnode, STrans *pTrans, SDbObj *pDb) {
-  int32_t code = 0;
-  SSdb   *pSdb = pMnode->pSdb;
-
-  void            *pIter = NULL;
-  SMqSubscribeObj *pSub = NULL;
-  while (1) {
-    pIter = sdbFetch(pSdb, SDB_SUBSCRIBE, pIter, (void **)&pSub);
-    if (pIter == NULL) break;
-
-    if (pSub->dbUid != pDb->uid) {
-      sdbRelease(pSdb, pSub);
-      continue;
-    }
-
-    if (mndSetDropSubCommitLogs(pMnode, pTrans, pSub) < 0) {
-      sdbRelease(pSdb, pSub);
-      sdbCancelFetch(pSdb, pIter);
-      code = -1;
-      break;
-    }
-
-    sdbRelease(pSdb, pSub);
-  }
-
-  return code;
-}
+//int32_t mndDropSubByDB(SMnode *pMnode, STrans *pTrans, SDbObj *pDb) {
+//  int32_t code = 0;
+//  SSdb   *pSdb = pMnode->pSdb;
+//
+//  void            *pIter = NULL;
+//  SMqSubscribeObj *pSub = NULL;
+//  while (1) {
+//    pIter = sdbFetch(pSdb, SDB_SUBSCRIBE, pIter, (void **)&pSub);
+//    if (pIter == NULL) break;
+//
+//    if (pSub->dbUid != pDb->uid) {
+//      sdbRelease(pSdb, pSub);
+//      continue;
+//    }
+//
+//    if (mndSetDropSubCommitLogs(pMnode, pTrans, pSub) < 0) {
+//      sdbRelease(pSdb, pSub);
+//      sdbCancelFetch(pSdb, pIter);
+//      code = -1;
+//      break;
+//    }
+//
+//    sdbRelease(pSdb, pSub);
+//  }
+//
+//  return code;
+//}
 
 int32_t mndDropSubByTopic(SMnode *pMnode, STrans *pTrans, const char *topicName) {
-  int32_t code = -1;
   SSdb   *pSdb = pMnode->pSdb;
 
   void            *pIter = NULL;
@@ -1093,8 +1193,8 @@ int32_t mndDropSubByTopic(SMnode *pMnode, STrans *pTrans, const char *topicName)
     pIter = sdbFetch(pSdb, SDB_SUBSCRIBE, pIter, (void **)&pSub);
     if (pIter == NULL) break;
 
-    char topic[TSDB_TOPIC_FNAME_LEN];
-    char cgroup[TSDB_CGROUP_LEN];
+    char topic[TSDB_TOPIC_FNAME_LEN] = {0};
+    char cgroup[TSDB_CGROUP_LEN] = {0};
     mndSplitSubscribeKey(pSub->key, topic, cgroup, true);
     if (strcmp(topic, topicName) != 0) {
       sdbRelease(pSdb, pSub);
@@ -1108,39 +1208,22 @@ int32_t mndDropSubByTopic(SMnode *pMnode, STrans *pTrans, const char *topicName)
       sdbCancelFetch(pSdb, pIter);
       return -1;
     }
-    int32_t sz = taosArrayGetSize(pSub->unassignedVgs);
-    for (int32_t i = 0; i < sz; i++) {
-      SMqVgEp       *pVgEp = taosArrayGetP(pSub->unassignedVgs, i);
-      SMqVDeleteReq *pReq = taosMemoryCalloc(1, sizeof(SMqVDeleteReq));
-      pReq->head.vgId = htonl(pVgEp->vgId);
-      pReq->vgId = pVgEp->vgId;
-      pReq->consumerId = -1;
-      memcpy(pReq->subKey, pSub->key, TSDB_SUBSCRIBE_KEY_LEN);
-      STransAction action = {0};
-      action.epSet = pVgEp->epSet;
-      action.pCont = pReq;
-      action.contLen = sizeof(SMqVDeleteReq);
-      action.msgType = TDMT_VND_TMQ_DELETE_SUB;
-      if (mndTransAppendRedoAction(pTrans, &action) != 0) {
-        taosMemoryFree(pReq);
-        sdbRelease(pSdb, pSub);
-        sdbCancelFetch(pSdb, pIter);
-        return -1;
-      }
+    if (sendDeleteSubToVnode(pSub, pTrans) != 0) {
+      sdbRelease(pSdb, pSub);
+      sdbCancelFetch(pSdb, pIter);
+      return -1;
     }
 
     if (mndSetDropSubRedoLogs(pMnode, pTrans, pSub) < 0) {
       sdbRelease(pSdb, pSub);
       sdbCancelFetch(pSdb, pIter);
-      goto END;
+      return -1;
     }
 
     sdbRelease(pSdb, pSub);
   }
 
-  code = 0;
-END:
-  return code;
+  return 0;
 }
 
 static int32_t buildResult(SSDataBlock *pBlock, int32_t* numOfRows, int64_t consumerId, const char* topic, const char* cgroup, SArray* vgs, SArray *offsetRows){
@@ -1169,7 +1252,7 @@ static int32_t buildResult(SSDataBlock *pBlock, int32_t* numOfRows, int64_t cons
     pColInfo = taosArrayGet(pBlock->pDataBlock, cols++);
     colDataSetVal(pColInfo, *numOfRows, (const char *)consumerIdHex, consumerId == -1);
     
-    mDebug("mnd show subscriptions: topic %s, consumer:0x%" PRIx64 " cgroup %s vgid %d", varDataVal(topic),
+    mInfo("mnd show subscriptions: topic %s, consumer:0x%" PRIx64 " cgroup %s vgid %d", varDataVal(topic),
            consumerId, varDataVal(cgroup), pVgEp->vgId);
 
     // offset

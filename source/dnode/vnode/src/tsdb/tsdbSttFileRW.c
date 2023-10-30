@@ -46,12 +46,12 @@ int32_t tsdbSttFileReaderOpen(const char *fname, const SSttFileReaderConfig *con
 
   // open file
   if (fname) {
-    code = tsdbOpenFile(fname, config->szPage, TD_FILE_READ, &reader[0]->fd);
+    code = tsdbOpenFile(fname, config->tsdb, TD_FILE_READ, &reader[0]->fd);
     TSDB_CHECK_CODE(code, lino, _exit);
   } else {
     char fname1[TSDB_FILENAME_LEN];
     tsdbTFileName(config->tsdb, config->file, fname1);
-    code = tsdbOpenFile(fname1, config->szPage, TD_FILE_READ, &reader[0]->fd);
+    code = tsdbOpenFile(fname1, config->tsdb, TD_FILE_READ, &reader[0]->fd);
     TSDB_CHECK_CODE(code, lino, _exit);
   }
 
@@ -705,7 +705,7 @@ static int32_t tsdbSttFWriterDoOpen(SSttFileWriter *writer) {
   char    fname[TSDB_FILENAME_LEN];
 
   tsdbTFileName(writer->config->tsdb, writer->file, fname);
-  code = tsdbOpenFile(fname, writer->config->szPage, flag, &writer->fd);
+  code = tsdbOpenFile(fname, writer->config->tsdb, flag, &writer->fd);
   TSDB_CHECK_CODE(code, lino, _exit);
 
   uint8_t hdr[TSDB_FHDR_SIZE] = {0};
@@ -975,6 +975,11 @@ int32_t tsdbSttFileWriteTombRecord(SSttFileWriter *writer, const STombRecord *re
 _exit:
   if (code) {
     TSDB_ERROR_LOG(TD_VID(writer->config->tsdb->pVnode), lino, code);
+  } else {
+    tsdbTrace("vgId:%d write tomb record to stt file:%s, cid:%" PRId64 ", suid:%" PRId64 ", uid:%" PRId64
+              ", version:%" PRId64,
+              TD_VID(writer->config->tsdb->pVnode), writer->fd->path, writer->config->cid, record->suid, record->uid,
+              record->version);
   }
   return code;
 }
