@@ -29,17 +29,20 @@ struct SResultRowEntryInfo;
 
 struct SFunctionNode;
 typedef struct SScalarParam SScalarParam;
+typedef struct SStreamState SStreamState;
 
 typedef struct SFuncExecEnv {
   int32_t calcMemSize;
 } SFuncExecEnv;
 
 typedef bool (*FExecGetEnv)(struct SFunctionNode *pFunc, SFuncExecEnv *pEnv);
-typedef bool (*FExecInit)(struct SqlFunctionCtx *pCtx, struct SResultRowEntryInfo *pResultCellInfo);
+typedef void (*FExecCleanUp)(struct SqlFunctionCtx* pCtx);
+typedef int32_t (*FExecInit)(struct SqlFunctionCtx *pCtx, struct SResultRowEntryInfo *pResultCellInfo);
 typedef int32_t (*FExecProcess)(struct SqlFunctionCtx *pCtx);
 typedef int32_t (*FExecFinalize)(struct SqlFunctionCtx *pCtx, SSDataBlock *pBlock);
 typedef int32_t (*FScalarExecProcess)(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
 typedef int32_t (*FExecCombine)(struct SqlFunctionCtx *pDestCtx, struct SqlFunctionCtx *pSourceCtx);
+typedef int32_t (*processFuncByRow)(SArray* pCtx);  // array of SqlFunctionCtx
 
 typedef struct SScalarFuncExecFuncs {
   FExecGetEnv        getEnv;
@@ -47,11 +50,13 @@ typedef struct SScalarFuncExecFuncs {
 } SScalarFuncExecFuncs;
 
 typedef struct SFuncExecFuncs {
-  FExecGetEnv   getEnv;
-  FExecInit     init;
-  FExecProcess  process;
-  FExecFinalize finalize;
-  FExecCombine  combine;
+  FExecGetEnv      getEnv;
+  FExecInit        init;
+  FExecProcess     process;
+  FExecFinalize    finalize;
+  FExecCombine     combine;
+  FExecCleanUp     cleanup;
+  processFuncByRow processFuncByRow;
 } SFuncExecFuncs;
 
 #define MAX_INTERVAL_TIME_WINDOW 10000000  // maximum allowed time windows in final results
@@ -114,9 +119,11 @@ typedef struct SInputColumnInfoData {
   int32_t           totalRows;        // total rows in current columnar data
   int32_t           startRowIndex;    // handle started row index
   int64_t           numOfRows;        // the number of rows needs to be handled
+  bool              blankFill;        // fill blank data to block for empty table
   int32_t           numOfInputCols;   // PTS is not included
   bool              colDataSMAIsSet;  // if agg is set or not
   SColumnInfoData  *pPTS;             // primary timestamp column
+  SColumnInfoData  *pPrimaryKey;      // primary key column
   SColumnInfoData **pData;
   SColumnDataAgg  **pColumnDataAgg;
   uint64_t uid;  // table uid, used to set the tag value when building the final query result for selectivity functions.
@@ -125,7 +132,7 @@ typedef struct SInputColumnInfoData {
 typedef struct SSerializeDataHandle {
   struct SDiskbasedBuf *pBuf;
   int32_t               currentPage;
-  void                 *pState;
+  SStreamState          *pState;
 } SSerializeDataHandle;
 
 // incremental state storage
@@ -147,6 +154,7 @@ typedef struct SBackendCfWrapper {
   int64_t        backendId;
   char           idstr[64];
 } SBackendCfWrapper;
+
 typedef struct STdbState {
   SBackendCfWrapper *pBackendCfWrapper;
   int64_t            backendCfWrapperId;
@@ -163,21 +171,59 @@ typedef struct STdbState {
   void               *txn;
 } STdbState;
 
-typedef struct {
+struct SStreamState {
   STdbState               *pTdbState;
   struct SStreamFileState *pFileState;
   int32_t                  number;
   SSHashObj               *parNameMap;
-  int64_t                  checkPointId;
   int32_t                  taskId;
   int64_t                  streamId;
   int64_t                  streamBackendRid;
-} SStreamState;
+  int8_t                   dump;
+  int32_t                  tsIndex;
+};
 
 typedef struct SFunctionStateStore {
   int32_t (*streamStateFuncPut)(SStreamState *pState, const SWinKey *key, const void *value, int32_t vLen);
   int32_t (*streamStateFuncGet)(SStreamState *pState, const SWinKey *key, void **ppVal, int32_t *pVLen);
 } SFunctionStateStore;
+
+typedef struct SFuncInputRow {
+  TSKEY ts;
+  bool isDataNull;
+  char* pData;
+  char* pPk;
+
+  SSDataBlock* block; // prev row block or src block
+  int32_t rowIndex; // prev row block ? 0 : rowIndex in srcBlock
+
+  //TODO:
+  // int32_t startOffset; // for diff, derivative
+  // SPoint1 startPoint; // for twa
+} SFuncInputRow;
+
+typedef struct SFuncInputRowIter {
+  bool  hasPrev;
+ 
+  SInputColumnInfoData* pInput;
+  SColumnInfoData* pDataCol;
+  SColumnInfoData* pPkCol;
+  TSKEY* tsList;
+  int32_t rowIndex;
+  int32_t inputEndIndex;
+  SSDataBlock* pSrcBlock;
+
+  TSKEY prevBlockTsEnd;
+  bool prevIsDataNull;
+  char* pPrevData;
+  char* pPrevPk;
+  SSDataBlock* pPrevRowBlock; // pre one row block
+
+  uint64_t groupId;
+  bool hasGroupId;
+
+  bool finalRow;
+} SFuncInputRowIter;
 
 // sql function runtime context
 typedef struct SqlFunctionCtx {
@@ -208,6 +254,11 @@ typedef struct SqlFunctionCtx {
   int32_t              exprIdx;
   char                *udfName;
   SFunctionStateStore *pStore;
+  bool                 hasPrimaryKey;
+  SFuncInputRowIter    rowIter;
+  bool                 bInputFinished;
+  bool                 hasWindowOrGroup; // denote that the function is used with time window or group
+  bool                 needCleanup; // denote that the function need to be cleaned up
 } SqlFunctionCtx;
 
 typedef struct tExprNode {
@@ -237,17 +288,21 @@ struct SScalarParam {
   int32_t          numOfQualified;  // number of qualified elements in the final results
 };
 
-void cleanupResultRowEntry(struct SResultRowEntryInfo *pCell);
-bool isRowEntryCompleted(struct SResultRowEntryInfo *pEntry);
-bool isRowEntryInitialized(struct SResultRowEntryInfo *pEntry);
+#define cleanupResultRowEntry(p)  p->initialized = false
+#define isRowEntryCompleted(p)   (p->complete)
+#define isRowEntryInitialized(p) (p->initialized)
 
 typedef struct SPoint {
   int64_t key;
   void   *val;
 } SPoint;
 
-int32_t taosGetLinearInterpolationVal(SPoint *point, int32_t outputType, SPoint *point1, SPoint *point2,
+void taosGetLinearInterpolationVal(SPoint *point, int32_t outputType, SPoint *point1, SPoint *point2,
                                       int32_t inputType);
+
+#define LEASTSQUARES_DOUBLE_ITEM_LENGTH 25
+#define LEASTSQUARES_BUFF_LENGTH 128
+#define DOUBLE_PRECISION_DIGITS "16e"
 
 #ifdef __cplusplus
 }

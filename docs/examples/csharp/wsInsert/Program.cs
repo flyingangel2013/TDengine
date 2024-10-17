@@ -1,61 +1,179 @@
 using System;
-using TDengineWS.Impl;
+using System.Text;
+using TDengine.Driver;
+using TDengine.Driver.Client;
 
 namespace Examples
 {
     public class WSInsertExample
     {
-        static int Main(string[] args)
+        public static void Main(string[] args)
         {
-            string DSN = "ws://root:taosdata@127.0.0.1:6041/test";
-            IntPtr wsConn = LibTaosWS.WSConnectWithDSN(DSN);
-
-            // Assert if connection is validate
-            if (wsConn == IntPtr.Zero)
+            try
             {
-                Console.WriteLine("get WS connection failed");
-                return -1;
+                var connectionString =
+                    "protocol=WebSocket;host=127.0.0.1;port=6041;useSSL=false;username=root;password=taosdata";
+                var builder = new ConnectionStringBuilder(connectionString);
+                using (var client = DbDriver.Open(builder))
+                {
+                    CreateDatabaseAndTable(client, connectionString);
+                    InsertData(client, connectionString);
+                    QueryData(client, connectionString);
+                    QueryWithReqId(client, connectionString);
+                }
             }
-            else
+            catch (TDengineError e)
             {
-                Console.WriteLine("Establish connect success.");
+                // handle TDengine error
+                Console.WriteLine(e.Message);
+                throw;
             }
-
-            string createTable = "CREATE STABLE test.meters (ts timestamp, current float, voltage int, phase float) TAGS (location binary(64), groupId int);";
-            string insert = "INSERT INTO test.d1001 USING test.meters TAGS('California.SanFrancisco', 2) VALUES ('2018-10-03 14:38:05.000', 10.30000, 219, 0.31000) ('2018-10-03 14:38:15.000', 12.60000, 218, 0.33000) ('2018-10-03 14:38:16.800', 12.30000, 221, 0.31000)" +
-                            "test.d1002 USING test.meters TAGS('California.SanFrancisco', 3) VALUES('2018-10-03 14:38:16.650', 10.30000, 218, 0.25000)" +
-                            "test.d1003 USING test.meters TAGS('California.LosAngeles', 2) VALUES('2018-10-03 14:38:05.500', 11.80000, 221, 0.28000)('2018-10-03 14:38:16.600', 13.40000, 223, 0.29000) " +
-                            "test.d1004 USING test.meters TAGS('California.LosAngeles', 3) VALUES('2018-10-03 14:38:05.000', 10.80000, 223, 0.29000)('2018-10-03 14:38:06.500', 11.50000, 221, 0.35000)";
-
-            IntPtr wsRes = LibTaosWS.WSQuery(wsConn, createTable);
-            ValidInsert("create table", wsRes);
-            LibTaosWS.WSFreeResult(wsRes);
-
-            wsRes = LibTaosWS.WSQuery(wsConn, insert);
-            ValidInsert("insert data", wsRes);
-            LibTaosWS.WSFreeResult(wsRes);
-
-            // close connection.
-            LibTaosWS.WSClose(wsConn);
-
-            return 0;
+            catch (Exception e)
+            {
+                // handle other exceptions
+                Console.WriteLine(e.Message);
+                throw;
+            }
         }
 
-        static void ValidInsert(string desc, IntPtr wsRes)
+        private static void CreateDatabaseAndTable(ITDengineClient client, string connectionString)
         {
-            int code = LibTaosWS.WSErrorNo(wsRes);
-            if (code != 0)
+            // ANCHOR: create_db_and_table
+            try
             {
-                Console.WriteLine($"execute SQL failed: reason: {LibTaosWS.WSErrorStr(wsRes)}, code:{code}");
+                // create database
+                var affected = client.Exec("CREATE DATABASE IF NOT EXISTS power");
+                Console.WriteLine($"Create database power successfully, rowsAffected: {affected}");
+                // create table
+                affected = client.Exec(
+                    "CREATE STABLE IF NOT EXISTS power.meters (ts TIMESTAMP, current FLOAT, voltage INT, phase FLOAT) TAGS (groupId INT, location BINARY(24))");
+                Console.WriteLine($"Create stable power.meters successfully, rowsAffected: {affected}");
             }
-            else
+            catch (TDengineError e)
             {
-                Console.WriteLine("{0} success affect {2} rows, cost {1} nanoseconds", desc, LibTaosWS.WSTakeTiming(wsRes), LibTaosWS.WSAffectRows(wsRes));
+                // handle TDengine error
+                Console.WriteLine("Failed to create database power or stable meters, ErrCode: " + e.Code +
+                                  ", ErrMessage: " + e.Error);
+                throw;
             }
+            catch (Exception e)
+            {
+                // handle other exceptions
+                Console.WriteLine("Failed to create database power or stable meters, ErrMessage: " + e.Message);
+                throw;
+            }
+            // ANCHOR_END: create_db_and_table
+        }
+
+        private static void InsertData(ITDengineClient client, string connectionString)
+        {
+            // ANCHOR: insert_data
+            // insert data, please make sure the database and table are created before
+            var insertQuery = "INSERT INTO " +
+                              "power.d1001 USING power.meters TAGS(2,'California.SanFrancisco') " +
+                              "VALUES " +
+                              "(NOW + 1a, 10.30000, 219, 0.31000) " +
+                              "(NOW + 2a, 12.60000, 218, 0.33000) " +
+                              "(NOW + 3a, 12.30000, 221, 0.31000) " +
+                              "power.d1002 USING power.meters TAGS(3, 'California.SanFrancisco') " +
+                              "VALUES " +
+                              "(NOW + 1a, 10.30000, 218, 0.25000) ";
+            try
+            {
+                var affectedRows = client.Exec(insertQuery);
+                Console.WriteLine("Successfully inserted " + affectedRows + " rows to power.meters.");
+            }
+            catch (TDengineError e)
+            {
+                // handle TDengine error
+                Console.WriteLine("Failed to insert data to power.meters, sql: " + insertQuery + ", ErrCode: " +
+                                  e.Code + ", ErrMessage: " +
+                                  e.Error);
+                throw;
+            }
+            catch (Exception e)
+            {
+                // handle other exceptions
+                Console.WriteLine("Failed to insert data to power.meters, sql: " + insertQuery + ", ErrMessage: " +
+                                  e.Message);
+                throw;
+            }
+            // ANCHOR_END: insert_data
+        }
+
+        private static void QueryData(ITDengineClient client, string connectionString)
+        {
+            // ANCHOR: select_data
+            // query data, make sure the database and table are created before
+            var query = "SELECT ts, current, location FROM power.meters limit 100";
+            try
+            {
+                using (var rows = client.Query(query))
+                {
+                    while (rows.Read())
+                    {
+                        // Add your data processing logic here
+                        var ts = (DateTime)rows.GetValue(0);
+                        var current = (float)rows.GetValue(1);
+                        var location = Encoding.UTF8.GetString((byte[])rows.GetValue(2));
+                        Console.WriteLine(
+                            $"ts: {ts:yyyy-MM-dd HH:mm:ss.fff}, current: {current}, location: {location}");
+                    }
+                }
+            }
+            catch (TDengineError e)
+            {
+                // handle TDengine error
+                Console.WriteLine("Failed to query data from power.meters, sql: " + query + ", ErrCode: " + e.Code +
+                                  ", ErrMessage: " + e.Error);
+                throw;
+            }
+            catch (Exception e)
+            {
+                // handle other exceptions
+                Console.WriteLine(
+                    "Failed to query data from power.meters, sql: " + query + ", ErrMessage: " + e.Message);
+                throw;
+            }
+            // ANCHOR_END: select_data
+        }
+
+        private static void QueryWithReqId(ITDengineClient client, string connectionString)
+        {
+            // ANCHOR: query_id
+            var reqId = (long)3;
+            // query data
+            var query = "SELECT ts, current, location FROM power.meters limit 1";
+            try
+            {
+                // query with request id 3
+                using (var rows = client.Query(query, reqId))
+                {
+                    while (rows.Read())
+                    {
+                        var ts = (DateTime)rows.GetValue(0);
+                        var current = (float)rows.GetValue(1);
+                        var location = Encoding.UTF8.GetString((byte[])rows.GetValue(2));
+                        Console.WriteLine(
+                            $"ts: {ts:yyyy-MM-dd HH:mm:ss.fff}, current: {current}, location: {location}");
+                    }
+                }
+            }
+            catch (TDengineError e)
+            {
+                // handle TDengine error
+                Console.WriteLine("Failed to execute sql with reqId: " + reqId + ", sql: " + query + ", ErrCode: " +
+                                  e.Code + ", ErrMessage: " + e.Error);
+                throw;
+            }
+            catch (Exception e)
+            {
+                // handle other exceptions
+                Console.WriteLine("Failed to execute sql with reqId: " + reqId + ", sql: " + query + ", ErrMessage: " +
+                                  e.Message);
+                throw;
+            }
+            // ANCHOR_END: query_id
         }
     }
-
 }
-// Establish connect success.
-// create table success affect 0 rows, cost 3717542 nanoseconds
-// insert data success affect 8 rows, cost 2613637 nanoseconds

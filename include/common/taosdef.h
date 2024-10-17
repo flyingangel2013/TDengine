@@ -30,10 +30,6 @@ typedef int64_t tb_uid_t;
 #define IS_TSWINDOW_SPECIFIED(win) (((win).skey != INT64_MIN) || ((win).ekey != INT64_MAX))
 #define TSWINDOW_IS_EQUAL(t1, t2)  (((t1).skey == (t2).skey) && ((t1).ekey == (t2).ekey))
 
-//define show cluster alive and show db.alive
-#define SHOW_STATUS_NOT_AVAILABLE  0
-#define SHOW_STATUS_AVAILABLE      1
-#define SHOW_STATUS_HALF_AVAILABLE 2
 
 typedef enum {
   TSDB_SUPER_TABLE = 1,   // super table
@@ -42,7 +38,8 @@ typedef enum {
   TSDB_TEMP_TABLE = 4,    // temp table created by nest query
   TSDB_SYSTEM_TABLE = 5,
   TSDB_TSMA_TABLE = 6,  // time-range-wise sma
-  TSDB_TABLE_MAX = 7
+  TSDB_VIEW_TABLE = 7,
+  TSDB_TABLE_MAX = 8
 } ETableType;
 
 typedef enum {

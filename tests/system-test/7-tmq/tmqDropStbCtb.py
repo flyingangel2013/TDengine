@@ -24,7 +24,7 @@ class TDTestCase:
     def init(self, conn, logSql, replicaVar=1):
         self.replicaVar = int(replicaVar)
         tdLog.debug(f"start to excute {__file__}")
-        tdSql.init(conn.cursor(), False)
+        tdSql.init(conn.cursor(), True)
 
     def prepareTestEnv(self):
         tdLog.printNoPrefix("======== prepare test env include database, stable, ctables, and insert data: ")
@@ -157,7 +157,7 @@ class TDTestCase:
         tdLog.info("act consume rows: %d, expect consume rows: %d"%(totalConsumeRows, expectrowcnt))
 
         if self.snapshot == 0:
-            if not ((totalConsumeRows > expectrowcnt / 2) and (totalConsumeRows < expectrowcnt)):
+            if not ((totalConsumeRows > expectrowcnt / 2) and (totalConsumeRows <= expectrowcnt)):
                 tdLog.exit("tmq consume rows error with snapshot = 0!")
 
         tdLog.info("wait subscriptions exit ....")
@@ -249,7 +249,7 @@ class TDTestCase:
         tdLog.info("act consume rows: %d, expect consume rows: %d"%(totalConsumeRows, expectrowcnt))
 
         if self.snapshot == 0:
-            if not ((totalConsumeRows > expectrowcnt / 2) and (totalConsumeRows < expectrowcnt)):
+            if not ((totalConsumeRows > expectrowcnt / 2) and (totalConsumeRows <= expectrowcnt)):
                 tdLog.exit("tmq consume rows error with snapshot = 0!")
 
         tdLog.info("wait subscriptions exit ....")

@@ -25,7 +25,7 @@ class TDTestCase:
     def init(self, conn, logSql, replicaVar=1):
         self.replicaVar = int(replicaVar)
         tdLog.debug(f"start to excute {__file__}")
-        tdSql.init(conn.cursor(), False)
+        tdSql.init(conn.cursor(), True)
 
     def prepareTestEnv(self):
         tdLog.printNoPrefix("======== prepare test env include database, stable, ctables, and insert data: ")
@@ -105,7 +105,6 @@ class TDTestCase:
 
         topicNameList = ['topic1']
         # expectRowsList = []
-        tmqCom.initConsumerTable("cdb", self.replicaVar)
 
         tdLog.info("create topics from stb with filter")
         queryString = "select * from %s.%s"%(paraDict['dbName'], paraDict['stbName'])
@@ -133,14 +132,15 @@ class TDTestCase:
         tmqCom.getStartConsumeNotifyFromTmqsim()
         tmqCom.getStartCommitNotifyFromTmqsim()
 
-        tdSql.query("select * from information_schema.ins_vnodes")
-        # tdLog.debug(tdSql.queryResult)
-        tdDnodes = cluster.dnodes
-        for result in tdSql.queryResult:
-            if result[2] == 'dbt' and result[3] == 'leader':
-                tdLog.debug("leader is %d"%(result[0] - 1))
-                tdDnodes[result[0] - 1].stoptaosd()
-                break
+        tdSql.query("balance vgroup leader")
+        # tdSql.query("select * from information_schema.ins_vnodes")
+        # # tdLog.debug(tdSql.queryResult)
+        # tdDnodes = cluster.dnodes
+        # for result in tdSql.queryResult:
+        #     if result[2] == 'dbt' and result[3] == 'leader':
+        #         tdLog.debug("leader is %d"%(result[0] - 1))
+        #         tdDnodes[result[0] - 1].stoptaosd()
+        #         break
 
         pInsertThread.join()
         expectRows = 1
@@ -159,7 +159,6 @@ class TDTestCase:
         tdLog.printNoPrefix("======== test case 1 end ...... ")
 
     def run(self):
-        tdSql.prepare()
         self.prepareTestEnv()
         self.tmqCase1()
 

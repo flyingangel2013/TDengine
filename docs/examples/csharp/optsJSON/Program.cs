@@ -1,69 +1,59 @@
-using TDengineDriver;
+using TDengine.Driver;
+using TDengine.Driver.Client;
 
 namespace TDengineExample
 {
     internal class OptsJsonExample
     {
-        static void Main()
+        // ANCHOR: main
+        public static void Main(string[] args)
         {
-            IntPtr conn = GetConnection();
+            var host = "127.0.0.1";
+
+            var lineDemo =
+                "meters,groupid=2,location=California.SanFrancisco current=10.3000002f64,voltage=219i32,phase=0.31f64 1626006833639";
+
+            var telnetDemo = "metric_telnet 1707095283260 4 host=host0 interface=eth0";
+
+            var jsonDemo =
+                "{\"metric\": \"metric_json\",\"timestamp\": 1626846400,\"value\": 10.3, \"tags\": {\"groupid\": 2, \"location\": \"California.SanFrancisco\", \"id\": \"d1001\"}}";
             try
             {
-                PrepareDatabase(conn);
-                string[] lines = { "[{\"metric\": \"meters.current\", \"timestamp\": 1648432611249, \"value\": 10.3, \"tags\": {\"location\": \"California.SanFrancisco\", \"groupid\": 2}}," +
-                " {\"metric\": \"meters.voltage\", \"timestamp\": 1648432611249, \"value\": 219, \"tags\": {\"location\": \"California.LosAngeles\", \"groupid\": 1}}, " +
-                "{\"metric\": \"meters.current\", \"timestamp\": 1648432611250, \"value\": 12.6, \"tags\": {\"location\": \"California.SanFrancisco\", \"groupid\": 2}}," +
-                " {\"metric\": \"meters.voltage\", \"timestamp\": 1648432611250, \"value\": 221, \"tags\": {\"location\": \"California.LosAngeles\", \"groupid\": 1}}]"
-            };
-
-                IntPtr res = TDengine.SchemalessInsert(conn, lines, 1, (int)TDengineSchemalessProtocol.TSDB_SML_JSON_PROTOCOL, (int)TDengineSchemalessPrecision.TSDB_SML_TIMESTAMP_NOT_CONFIGURED);
-                if (TDengine.ErrorNo(res) != 0)
+                var builder =
+                    new ConnectionStringBuilder(
+                        $"protocol=WebSocket;host={host};port=6041;username=root;password=taosdata");
+                using (var client = DbDriver.Open(builder))
                 {
-                    throw new Exception("SchemalessInsert failed since " + TDengine.Error(res));
+                    // create database
+                    client.Exec("CREATE DATABASE IF NOT EXISTS power");
+                    // use database
+                    client.Exec("USE power");
+                    // insert influx line protocol data
+                    client.SchemalessInsert(new[]{lineDemo}, TDengineSchemalessProtocol.TSDB_SML_LINE_PROTOCOL,
+                        TDengineSchemalessPrecision.TSDB_SML_TIMESTAMP_MILLI_SECONDS, 0, ReqId.GetReqId());
+                    // insert opentsdb telnet protocol data
+                    client.SchemalessInsert(new[]{telnetDemo}, TDengineSchemalessProtocol.TSDB_SML_TELNET_PROTOCOL,
+                        TDengineSchemalessPrecision.TSDB_SML_TIMESTAMP_MILLI_SECONDS, 0, ReqId.GetReqId());
+                    // insert json data
+                    client.SchemalessInsert(new []{jsonDemo}, TDengineSchemalessProtocol.TSDB_SML_JSON_PROTOCOL,
+                        TDengineSchemalessPrecision.TSDB_SML_TIMESTAMP_NOT_CONFIGURED, 0, ReqId.GetReqId());
                 }
-                else
-                {
-                    int affectedRows = TDengine.AffectRows(res);
-                    Console.WriteLine($"SchemalessInsert success, affected {affectedRows} rows");
-                }
-                TDengine.FreeResult(res);
-            }
-            finally
-            {
-                TDengine.Close(conn);
-            }
-        }
-        static IntPtr GetConnection()
-        {
-            string host = "localhost";
-            short port = 6030;
-            string username = "root";
-            string password = "taosdata";
-            string dbname = "";
-            var conn = TDengine.Connect(host, username, password, dbname, port);
-            if (conn == IntPtr.Zero)
-            {
-                throw new Exception("Connect to TDengine failed");
-            }
-            else
-            {
-                Console.WriteLine("Connect to TDengine success");
-            }
-            return conn;
-        }
 
-        static void PrepareDatabase(IntPtr conn)
-        {
-            IntPtr res = TDengine.Query(conn, "CREATE DATABASE test WAL_RETENTION_PERIOD 3600");
-            if (TDengine.ErrorNo(res) != 0)
-            {
-                throw new Exception("failed to create database, reason: " + TDengine.Error(res));
+                Console.WriteLine("Inserted data with schemaless successfully.");
             }
-            res = TDengine.Query(conn, "USE test");
-            if (TDengine.ErrorNo(res) != 0)
+            catch (TDengineError e)
             {
-                throw new Exception("failed to change database, reason: " + TDengine.Error(res));
+                // handle TDengine error
+                Console.WriteLine("Failed to insert data with schemaless, host:" + host + "; ErrCode:" + e.Code + "; ErrMessage: " + e.Error);
+                throw;
+            }
+            catch (Exception e)
+            {
+                // handle other exceptions
+                Console.WriteLine("Failed to insert data with schemaless, host:" + host + "; ErrMessage: " + e.Message);
+                throw;
             }
         }
+        // ANCHOR_END: main
     }
 }

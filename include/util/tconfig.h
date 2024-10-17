@@ -51,17 +51,30 @@ typedef enum {
   CFG_DTYPE_TIMEZONE
 } ECfgDataType;
 
+typedef enum { CFG_SCOPE_SERVER, CFG_SCOPE_CLIENT, CFG_SCOPE_BOTH } ECfgScopeType;
+
 typedef enum {
-  CFG_SCOPE_SERVER,
-  CFG_SCOPE_CLIENT,
-  CFG_SCOPE_BOTH
-} ECfgScopeType;
+  CFG_DYN_NONE = 0,
+  CFG_DYN_SERVER = 1,
+  CFG_DYN_CLIENT = 2,
+  CFG_DYN_BOTH = 3,
+#ifdef TD_ENTERPRISE
+  CFG_DYN_ENT_SERVER = CFG_DYN_SERVER,
+  CFG_DYN_ENT_CLIENT = CFG_DYN_CLIENT,
+  CFG_DYN_ENT_BOTH = CFG_DYN_BOTH,
+#else
+  CFG_DYN_ENT_SERVER = CFG_DYN_NONE,
+  CFG_DYN_ENT_CLIENT = CFG_DYN_NONE,
+  CFG_DYN_ENT_BOTH = CFG_DYN_NONE,
+#endif
+} ECfgDynType;
 
 typedef struct SConfigItem {
   ECfgSrcType  stype;
   ECfgDataType dtype;
   int8_t       scope;
-  char         *name;
+  int8_t       dynScope;
+  char        *name;
   union {
     bool    bval;
     float   fval;
@@ -71,13 +84,13 @@ typedef struct SConfigItem {
   };
   union {
     int64_t imin;
-    double  fmin;
+    float   fmin;
   };
   union {
     int64_t imax;
-    double  fmax;
+    float   fmax;
   };
-  SArray *array;  // SDiskCfg
+  SArray *array;  // SDiskCfg/SLogVar
 } SConfigItem;
 
 typedef struct {
@@ -85,37 +98,44 @@ typedef struct {
   const char *value;
 } SConfigPair;
 
-typedef struct SConfig {
-  ECfgSrcType stype;
-  SArray     *array;
-} SConfig;
+typedef struct SConfig SConfig;
+typedef struct SConfigIter SConfigIter;
 
-SConfig *cfgInit();
-int32_t  cfgLoad(SConfig *pCfg, ECfgSrcType cfgType, const void *sourceStr);
-int32_t  cfgLoadFromArray(SConfig *pCfg, SArray *pArgs);  // SConfigPair
-void     cfgCleanup(SConfig *pCfg);
-
+int32_t      cfgInit(SConfig **ppCfg);
+int32_t      cfgLoad(SConfig *pCfg, ECfgSrcType cfgType, const void *sourceStr);
+int32_t      cfgLoadFromArray(SConfig *pCfg, SArray *pArgs);  // SConfigPair
+void         cfgCleanup(SConfig *pCfg);
 int32_t      cfgGetSize(SConfig *pCfg);
-SConfigItem *cfgGetItem(SConfig *pCfg, const char *name);
-int32_t      cfgSetItem(SConfig *pCfg, const char *name, const char *value, ECfgSrcType stype);
+SConfigItem *cfgGetItem(SConfig *pCfg, const char *pName);
+int32_t      cfgSetItem(SConfig *pCfg, const char *name, const char *value, ECfgSrcType stype, bool lock);
+int32_t      cfgCheckRangeForDynUpdate(SConfig *pCfg, const char *name, const char *pVal, bool isServer);
 
-int32_t cfgAddBool(SConfig *pCfg, const char *name, bool defaultVal, int8_t scope);
-int32_t cfgAddInt32(SConfig *pCfg, const char *name, int32_t defaultVal, int64_t minval, int64_t maxval, int8_t scope);
-int32_t cfgAddInt64(SConfig *pCfg, const char *name, int64_t defaultVal, int64_t minval, int64_t maxval, int8_t scope);
-int32_t cfgAddFloat(SConfig *pCfg, const char *name, float defaultVal, float minval, float maxval, int8_t scope);
-int32_t cfgAddString(SConfig *pCfg, const char *name, const char *defaultVal, int8_t scope);
-int32_t cfgAddDir(SConfig *pCfg, const char *name, const char *defaultVal, int8_t scope);
-int32_t cfgAddLocale(SConfig *pCfg, const char *name, const char *defaultVal, int8_t scope);
-int32_t cfgAddCharset(SConfig *pCfg, const char *name, const char *defaultVal, int8_t scope);
-int32_t cfgAddTimezone(SConfig *pCfg, const char *name, const char *defaultVal, int8_t scope);
+int32_t      cfgCreateIter(SConfig *pConf, SConfigIter **ppIter);
+SConfigItem *cfgNextIter(SConfigIter *pIter);
+void         cfgDestroyIter(SConfigIter *pIter);
+void         cfgLock(SConfig *pCfg);
+void         cfgUnLock(SConfig *pCfg);
+
+// clang-format off
+int32_t cfgAddBool(SConfig *pCfg, const char *name, bool defaultVal, int8_t scope, int8_t dynScope);
+int32_t cfgAddInt32(SConfig *pCfg, const char *name, int32_t defaultVal, int64_t minval, int64_t maxval, int8_t scope, int8_t dynScope);
+int32_t cfgAddInt64(SConfig *pCfg, const char *name, int64_t defaultVal, int64_t minval, int64_t maxval, int8_t scope, int8_t dynScope);
+int32_t cfgAddFloat(SConfig *pCfg, const char *name, float defaultVal, float minval, float maxval, int8_t scope, int8_t dynScope);
+int32_t cfgAddString(SConfig *pCfg, const char *name, const char *defaultVal, int8_t scope, int8_t dynScope);
+int32_t cfgAddDir(SConfig *pCfg, const char *name, const char *defaultVal, int8_t scope, int8_t dynScope);
+int32_t cfgAddLocale(SConfig *pCfg, const char *name, const char *defaultVal, int8_t scope, int8_t dynScope);
+int32_t cfgAddCharset(SConfig *pCfg, const char *name, const char *defaultVal, int8_t scope, int8_t dynScope);
+int32_t cfgAddTimezone(SConfig *pCfg, const char *name, const char *defaultVal, int8_t scope, int8_t dynScope);
+// clang-format on
 
 const char *cfgStypeStr(ECfgSrcType type);
 const char *cfgDtypeStr(ECfgDataType type);
 
-void cfgDumpItemValue(SConfigItem *pItem, char *buf, int32_t bufSize, int32_t *pLen);
-void cfgDumpItemScope(SConfigItem *pItem, char *buf, int32_t bufSize, int32_t *pLen);
+int32_t cfgDumpItemValue(SConfigItem *pItem, char *buf, int32_t bufSize, int32_t *pLen);
+int32_t cfgDumpItemScope(SConfigItem *pItem, char *buf, int32_t bufSize, int32_t *pLen);
 
 void cfgDumpCfg(SConfig *pCfg, bool tsc, bool dump);
+void cfgDumpCfgS3(SConfig *pCfg, bool tsc, bool dump);
 
 int32_t cfgGetApollUrl(const char **envCmd, const char *envFile, char *apolloUrl);
 

@@ -42,7 +42,7 @@ void initStorageAPI(SStorageAPI* pAPI) {
 
 void initTsdbReaderAPI(TsdReader* pReader) {
   pReader->tsdReaderOpen = (int32_t(*)(void*, SQueryTableDataCond*, void*, int32_t, SSDataBlock*, void**, const char*,
-                                       bool, SHashObj**))tsdbReaderOpen2;
+                                       SHashObj**))tsdbReaderOpen2;
   pReader->tsdReaderClose = tsdbReaderClose2;
 
   pReader->tsdNextDataBlock = tsdbNextDataBlock2;
@@ -59,7 +59,10 @@ void initTsdbReaderAPI(TsdReader* pReader) {
   pReader->tsdReaderGetNumOfInMemRows = tsdbGetNumOfRowsInMemTable2;  // todo this function should be moved away
 
   pReader->tsdSetQueryTableList = tsdbSetTableList2;
-  pReader->tsdSetReaderTaskId = (void (*)(void*, const char*))tsdbReaderSetId2;
+  pReader->tsdSetReaderTaskId = tsdbReaderSetId;
+
+  pReader->tsdSetFilesetDelimited = (void (*)(void*))tsdbSetFilesetDelimited;
+  pReader->tsdSetSetNotifyCb = (void (*)(void*, TsdReaderNotifyCbFn, void*))tsdbReaderSetNotifyCb;
 }
 
 void initMetadataAPI(SStoreMeta* pMeta) {
@@ -88,7 +91,7 @@ void initMetadataAPI(SStoreMeta* pMeta) {
   pMeta->getTableTypeByName = metaGetTableTypeByName;
   pMeta->getTableNameByUid = metaGetTableNameByUid;
 
-  pMeta->getTableSchema = tsdbGetTableSchema;  // todo refactor
+  pMeta->getTableSchema = vnodeGetTableSchema;
   pMeta->storeGetTableList = vnodeGetTableList;
 
   pMeta->getCachedTableList = metaGetCachedTableUidList;
@@ -112,6 +115,8 @@ void initTqAPI(SStoreTqReader* pTq) {
   pTq->tqReaderSeek = tqReaderSeek;
   pTq->tqRetrieveBlock = tqRetrieveDataBlock;
 
+  pTq->tqGetTablePrimaryKey = tqGetTablePrimaryKey;
+  pTq->tqSetTablePrimaryKey = tqSetTablePrimaryKey;
   pTq->tqReaderNextBlockInWal = tqNextBlockInWal;
 
   pTq->tqNextBlockImpl = tqNextBlockImpl;  // todo remove it
@@ -124,13 +129,16 @@ void initTqAPI(SStoreTqReader* pTq) {
   pTq->tqReaderIsQueriedTable = tqReaderIsQueriedTable;
   pTq->tqReaderCurrentBlockConsumed = tqCurrentBlockConsumed;
 
-  pTq->tqReaderGetWalReader = tqGetWalReader;              // todo remove it
-  pTq->tqReaderRetrieveTaosXBlock = tqRetrieveTaosxBlock;  // todo remove it
+  pTq->tqReaderGetWalReader = tqGetWalReader;  // todo remove it
+  //  pTq->tqReaderRetrieveTaosXBlock = tqRetrieveTaosxBlock;  // todo remove it
 
   pTq->tqReaderSetSubmitMsg = tqReaderSetSubmitMsg;  // todo remove it
   pTq->tqGetResultBlock = tqGetResultBlock;
 
-  pTq->tqReaderNextBlockFilterOut = tqNextDataBlockFilterOut;
+  //  pTq->tqReaderNextBlockFilterOut = tqNextDataBlockFilterOut;
+  pTq->tqGetResultBlockTime = tqGetResultBlockTime;
+
+  pTq->tqGetStreamExecProgress = tqGetStreamExecInfo;
 }
 
 void initStateStoreAPI(SStateStore* pStore) {
@@ -175,10 +183,16 @@ void initStateStoreAPI(SStateStore* pStore) {
   pStore->streamStateSessionPut = streamStateSessionPut;
   pStore->streamStateSessionGet = streamStateSessionGet;
   pStore->streamStateSessionDel = streamStateSessionDel;
+  pStore->streamStateSessionReset = streamStateSessionReset;
   pStore->streamStateSessionClear = streamStateSessionClear;
   pStore->streamStateSessionGetKVByCur = streamStateSessionGetKVByCur;
   pStore->streamStateStateAddIfNotExist = streamStateStateAddIfNotExist;
   pStore->streamStateSessionGetKeyByRange = streamStateSessionGetKeyByRange;
+  pStore->streamStateCountGetKeyByRange = streamStateCountGetKeyByRange;
+  pStore->streamStateSessionAllocWinBuffByNextPosition = streamStateSessionAllocWinBuffByNextPosition;
+
+  pStore->streamStateCountWinAddIfNotExist = streamStateCountWinAddIfNotExist;
+  pStore->streamStateCountWinAdd = streamStateCountWinAdd;
 
   pStore->updateInfoInit = updateInfoInit;
   pStore->updateInfoFillBlockData = updateInfoFillBlockData;
@@ -187,6 +201,7 @@ void initStateStoreAPI(SStateStore* pStore) {
   pStore->updateInfoDestroy = updateInfoDestroy;
   pStore->windowSBfDelete = windowSBfDelete;
   pStore->windowSBfAdd = windowSBfAdd;
+  pStore->isIncrementalTimeStamp = isIncrementalTimeStamp;
 
   pStore->updateInfoInitP = updateInfoInitP;
   pStore->updateInfoAddCloseWindowSBF = updateInfoAddCloseWindowSBF;
@@ -195,6 +210,7 @@ void initStateStoreAPI(SStateStore* pStore) {
   pStore->updateInfoDeserialize = updateInfoDeserialize;
 
   pStore->streamStateSessionSeekKeyNext = streamStateSessionSeekKeyNext;
+  pStore->streamStateCountSeekKeyPrev = streamStateCountSeekKeyPrev;
   pStore->streamStateSessionSeekKeyCurrentPrev = streamStateSessionSeekKeyCurrentPrev;
   pStore->streamStateSessionSeekKeyCurrentNext = streamStateSessionSeekKeyCurrentNext;
 
@@ -209,6 +225,7 @@ void initStateStoreAPI(SStateStore* pStore) {
   pStore->streamStateDestroy = streamStateDestroy;
   pStore->streamStateDeleteCheckPoint = streamStateDeleteCheckPoint;
   pStore->streamStateReloadInfo = streamStateReloadInfo;
+  pStore->streamStateCopyBackend = streamStateCopyBackend;
 }
 
 void initMetaReaderAPI(SStoreMetaReader* pMetaReader) {
@@ -243,6 +260,8 @@ void initCacheFn(SStoreCacheReader* pCache) {
 }
 
 void initSnapshotFn(SStoreSnapshotFn* pSnapshot) {
+  pSnapshot->taosXGetTablePrimaryKey = taosXGetTablePrimaryKey;
+  pSnapshot->taosXSetTablePrimaryKey = taosXSetTablePrimaryKey;
   pSnapshot->setForSnapShot = setForSnapShot;
   pSnapshot->destroySnapshot = destroySnapContext;
   pSnapshot->getMetaTableInfoFromSnapshot = getMetaTableInfoFromSnapshot;

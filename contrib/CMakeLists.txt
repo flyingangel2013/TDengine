@@ -6,7 +6,10 @@ function(cat IN_FILE OUT_FILE)
     file(APPEND ${OUT_FILE} "${CONTENTS}")
 endfunction(cat IN_FILE OUT_FILE)
 
-if(${TD_LINUX})
+if(${BUILD_WITH_S3})
+    file(MAKE_DIRECTORY $ENV{HOME}/.cos-local.2/)
+
+elseif(${BUILD_WITH_COS})
 
 set(CONTRIB_TMP_FILE3 "${CMAKE_BINARY_DIR}/deps_tmp_CMakeLists.txt.in3")
 configure_file("${TD_SUPPORT_DIR}/deps_CMakeLists.txt.in" ${CONTRIB_TMP_FILE3})
@@ -37,7 +40,8 @@ execute_process(COMMAND "${CMAKE_COMMAND}" -G "${CMAKE_GENERATOR}" .
 execute_process(COMMAND "${CMAKE_COMMAND}" --build .
         WORKING_DIRECTORY "${TD_CONTRIB_DIR}/deps-download")
 
-endif(${TD_LINUX})
+endif()
+
 
 set(CONTRIB_TMP_FILE "${CMAKE_BINARY_DIR}/deps_tmp_CMakeLists.txt.in")
 configure_file("${TD_SUPPORT_DIR}/deps_CMakeLists.txt.in" ${CONTRIB_TMP_FILE})
@@ -105,17 +109,19 @@ cat("${TD_SUPPORT_DIR}/zlib_CMakeLists.txt.in" ${CONTRIB_TMP_FILE})
 # cJson
 cat("${TD_SUPPORT_DIR}/cjson_CMakeLists.txt.in" ${CONTRIB_TMP_FILE})
 
-# leveldb
-if(${BUILD_WITH_LEVELDB})
-    cat("${TD_SUPPORT_DIR}/leveldb_CMakeLists.txt.in" ${CONTRIB_TMP_FILE})
-endif(${BUILD_WITH_LEVELDB})
+# xz
+#cat("${TD_SUPPORT_DIR}/xz_CMakeLists.txt.in" ${CONTRIB_TMP_FILE})
+
+#lzma2
+cat("${TD_SUPPORT_DIR}/lzma_CMakeLists.txt.in" ${CONTRIB_TMP_FILE})
+
 
 if (${BUILD_CONTRIB})
     if(${BUILD_WITH_ROCKSDB})
         cat("${TD_SUPPORT_DIR}/rocksdb_CMakeLists.txt.in" ${CONTRIB_TMP_FILE})
         add_definitions(-DUSE_ROCKSDB)
     endif()
-else() 
+else()
     if (NOT ${TD_LINUX})
         if(${BUILD_WITH_ROCKSDB})
             cat("${TD_SUPPORT_DIR}/rocksdb_CMakeLists.txt.in" ${CONTRIB_TMP_FILE})
@@ -128,53 +134,36 @@ else()
     endif()
 endif()
 
-# canonical-raft
-if(${BUILD_WITH_CRAFT})
-    cat("${TD_SUPPORT_DIR}/craft_CMakeLists.txt.in" ${CONTRIB_TMP_FILE})
-    SET(BUILD_WITH_UV ON CACHE BOOL "craft need libuv" FORCE)
-endif(${BUILD_WITH_CRAFT})
-
-# traft
-if(${BUILD_WITH_TRAFT})
-    cat("${TD_SUPPORT_DIR}/traft_CMakeLists.txt.in" ${CONTRIB_TMP_FILE})
-    SET(BUILD_WITH_UV ON CACHE BOOL "traft need libuv" FORCE)
-endif(${BUILD_WITH_TRAFT})
+#cat("${TD_SUPPORT_DIR}/zstd_CMakeLists.txt.in" ${CONTRIB_TMP_FILE})
 
 #libuv
 if(${BUILD_WITH_UV})
     cat("${TD_SUPPORT_DIR}/libuv_CMakeLists.txt.in" ${CONTRIB_TMP_FILE})
 endif(${BUILD_WITH_UV})
 
-# bdb
-if(${BUILD_WITH_BDB})
-    cat("${TD_SUPPORT_DIR}/bdb_CMakeLists.txt.in" ${CONTRIB_TMP_FILE})
-endif(${BUILD_WITH_BDB})
-
 # sqlite
 if(${BUILD_WITH_SQLITE})
     cat("${TD_SUPPORT_DIR}/sqlite_CMakeLists.txt.in" ${CONTRIB_TMP_FILE})
 endif(${BUILD_WITH_SQLITE})
 
+# s3
+if(${BUILD_WITH_S3})
+    cat("${TD_SUPPORT_DIR}/ssl_CMakeLists.txt.in" ${CONTRIB_TMP_FILE})
+    cat("${TD_SUPPORT_DIR}/xml2_CMakeLists.txt.in" ${CONTRIB_TMP_FILE})
+    cat("${TD_SUPPORT_DIR}/curl_CMakeLists.txt.in" ${CONTRIB_TMP_FILE})
+    cat("${TD_SUPPORT_DIR}/libs3_CMakeLists.txt.in" ${CONTRIB_TMP_FILE})
+    add_definitions(-DUSE_S3)
+
 # cos
-if(${BUILD_WITH_COS})
+elseif(${BUILD_WITH_COS})
     #cat("${TD_SUPPORT_DIR}/mxml_CMakeLists.txt.in" ${CONTRIB_TMP_FILE})
     #cat("${TD_SUPPORT_DIR}/apr_CMakeLists.txt.in" ${CONTRIB_TMP_FILE})
     #cat("${TD_SUPPORT_DIR}/apr-util_CMakeLists.txt.in" ${CONTRIB_TMP_FILE})
     #cat("${TD_SUPPORT_DIR}/curl_CMakeLists.txt.in" ${CONTRIB_TMP_FILE})
     cat("${TD_SUPPORT_DIR}/cos_CMakeLists.txt.in" ${CONTRIB_TMP_FILE})
     add_definitions(-DUSE_COS)
-endif(${BUILD_WITH_COS})
 
-# lucene
-if(${BUILD_WITH_LUCENE})
-    cat("${TD_SUPPORT_DIR}/lucene_CMakeLists.txt.in" ${CONTRIB_TMP_FILE})
-    add_definitions(-DUSE_LUCENE)
-endif(${BUILD_WITH_LUCENE})
-
-# NuRaft
-if(${BUILD_WITH_NURAFT})
-    cat("${TD_SUPPORT_DIR}/nuraft_CMakeLists.txt.in" ${CONTRIB_TMP_FILE})
-endif(${BUILD_WITH_NURAFT})
+endif()
 
 # crashdump
 if(${BUILD_CRASHDUMP})
@@ -192,6 +181,11 @@ endif(${BUILD_ADDR2LINE})
 # geos
 if(${BUILD_GEOS})
     cat("${TD_SUPPORT_DIR}/geos_CMakeLists.txt.in" ${CONTRIB_TMP_FILE})
+endif()
+
+#
+if(${BUILD_PCRE2})
+    cat("${TD_SUPPORT_DIR}/pcre2_CMakeLists.txt.in" ${CONTRIB_TMP_FILE})
 endif()
 
 # download dependencies
@@ -231,7 +225,6 @@ if(${BUILD_TEST})
         )
     endif(${TD_DARWIN})
 
-
 endif(${BUILD_TEST})
 
 # cJson
@@ -248,6 +241,11 @@ target_include_directories(
 )
 unset(CMAKE_PROJECT_INCLUDE_BEFORE)
 
+# xml2
+#if(${BUILD_WITH_S3})
+#  add_subdirectory(xml2 EXCLUDE_FROM_ALL)
+#endif()
+
 # lz4
 add_subdirectory(lz4/build/cmake EXCLUDE_FROM_ALL)
 target_include_directories(
@@ -257,6 +255,10 @@ target_include_directories(
 
 # zlib
 set(CMAKE_PROJECT_INCLUDE_BEFORE "${TD_SUPPORT_DIR}/EnableCMP0048.txt.in")
+if(${TD_DARWIN})
+    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-error=deprecated-non-prototype")
+    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=deprecated-non-prototype")
+endif(${TD_DARWIN})
 add_subdirectory(zlib EXCLUDE_FROM_ALL)
 target_include_directories(
     zlibstatic
@@ -269,6 +271,13 @@ target_include_directories(
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/zlib
 )
 unset(CMAKE_PROJECT_INCLUDE_BEFORE)
+
+# add_subdirectory(xz EXCLUDE_FROM_ALL)
+# target_include_directories(
+#     xz
+#     PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/xz
+#     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/xz
+# )
 
 # leveldb
 if(${BUILD_WITH_LEVELDB})
@@ -300,7 +309,8 @@ if (${BUILD_WITH_ROCKSDB})
                 SET(CMAKE_BUILD_TYPE Release)
             endif()
         endif(${TD_LINUX})
-        MESSAGE(STATUS "CXXXX STATUS CONFIG: " ${CMAKE_CXX_FLAGS})
+        MESSAGE(STATUS "ROCKSDB CXXXX STATUS CONFIG: " ${CMAKE_CXX_FLAGS})
+        MESSAGE(STATUS "ROCKSDB C STATUS CONFIG: " ${CMAKE_C_FLAGS})
 
         if(${TD_DARWIN})
             SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=maybe-uninitialized")
@@ -311,9 +321,13 @@ if (${BUILD_WITH_ROCKSDB})
         endif(${TD_DARWIN_ARM64})
 
         if (${TD_WINDOWS})
-            SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4244 /wd4819")
+            SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4244 /wd4819 /std:c++17")
+            SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /wd4244 /wd4819")
             option(WITH_JNI "" OFF)
-            option(WITH_MD_LIBRARY "build with MD" OFF)
+            if(CMAKE_C_FLAGS MATCHES "/MT" OR CMAKE_C_FLAGS MATCHES "/MTd")
+               message("Rocksdb build runtime lib use /MT or /MTd")
+               option(WITH_MD_LIBRARY "build with MD" OFF)
+            endif()
             set(SYSTEM_LIBS ${SYSTEM_LIBS} shlwapi.lib rpcrt4.lib)
         endif(${TD_WINDOWS})
 
@@ -342,11 +356,13 @@ if (${BUILD_WITH_ROCKSDB})
             rocksdb
             PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/include>
         )
-    else() 
+    else()
         if (NOT ${TD_LINUX})
-            MESSAGE(STATUS "CXXXX STATUS CONFIG: " ${CMAKE_CXX_FLAGS})
+            MESSAGE(STATUS "ROCKSDB CXX STATUS CONFIG: " ${CMAKE_CXX_FLAGS})
+            MESSAGE(STATUS "ROCKSDB C STATUS CONFIG: " ${CMAKE_C_FLAGS})
             if(${TD_DARWIN})
                 SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=maybe-uninitialized")
+                SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-error=maybe-uninitialized")
             endif(${TD_DARWIN})
 
             if (${TD_DARWIN_ARM64})
@@ -354,9 +370,13 @@ if (${BUILD_WITH_ROCKSDB})
             endif(${TD_DARWIN_ARM64})
 
             if (${TD_WINDOWS})
-                SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4244 /wd4819")
+                SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4244 /wd4819 /std:c++17")
+                SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /wd4244 /wd4819")
                 option(WITH_JNI "" OFF)
-                option(WITH_MD_LIBRARY "build with MD" OFF)
+                if(CMAKE_C_FLAGS MATCHES "/MT" OR CMAKE_C_FLAGS MATCHES "/MTd")
+                    message("Rocksdb build runtime lib use /MT or /MTd")
+                    option(WITH_MD_LIBRARY "build with MD" OFF)
+                endif()
                 set(SYSTEM_LIBS ${SYSTEM_LIBS} shlwapi.lib rpcrt4.lib)
             endif(${TD_WINDOWS})
 
@@ -385,19 +405,22 @@ if (${BUILD_WITH_ROCKSDB})
                 rocksdb
                 PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/include>
             )
-        endif() 
-      
+        endif()
+
     endif()
 endif()
 
+if(${BUILD_WITH_S3})
+    INCLUDE_DIRECTORIES($ENV{HOME}/.cos-local.2/include)
+    MESSAGE("build with s3: ${BUILD_WITH_S3}")
 # cos
-if(${BUILD_WITH_COS})
+elseif(${BUILD_WITH_COS})
   if(${TD_LINUX})
     set(CMAKE_PREFIX_PATH $ENV{HOME}/.cos-local.1)
     #ADD_DEFINITIONS(-DMINIXML_LIBRARY=${CMAKE_BINARY_DIR}/build/lib/libxml.a)
     option(ENABLE_TEST "Enable the tests" OFF)
     INCLUDE_DIRECTORIES($ENV{HOME}/.cos-local.1/include)
-    MESSAGE("$ENV{HOME}/.cos-local.1/include")
+    #MESSAGE("$ENV{HOME}/.cos-local.1/include")
 
     set(CMAKE_BUILD_TYPE Release)
     set(ORIG_CMAKE_PROJECT_NAME ${CMAKE_PROJECT_NAME})
@@ -413,34 +436,21 @@ if(${BUILD_WITH_COS})
   else()
 
   endif(${TD_LINUX})
-endif(${BUILD_WITH_COS})
 
-# lucene
-# To support build on ubuntu: sudo apt-get install libboost-all-dev
-if(${BUILD_WITH_LUCENE})
-    option(ENABLE_TEST "Enable the tests" OFF)
-    add_subdirectory(lucene EXCLUDE_FROM_ALL)
-    target_include_directories(
-      lucene++
-      PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/lucene/include>
-    )
-
-endif(${BUILD_WITH_LUCENE})
-
-# NuRaft
-if(${BUILD_WITH_NURAFT})
-    add_subdirectory(nuraft EXCLUDE_FROM_ALL)
-endif(${BUILD_WITH_NURAFT})
+endif()
 
 # pthread
 if(${BUILD_PTHREAD})
-    set(CMAKE_BUILD_TYPE debug)
+    if ("${CMAKE_BUILD_TYPE}" STREQUAL "")
+    SET(CMAKE_BUILD_TYPE Release)
+    endif()
     add_definitions(-DPTW32_STATIC_LIB)
     add_subdirectory(pthread EXCLUDE_FROM_ALL)
     set_target_properties(libpthreadVC3 PROPERTIES OUTPUT_NAME pthread)
     add_library(pthread INTERFACE)
     target_link_libraries(pthread INTERFACE libpthreadVC3)
 endif()
+
 
 # jemalloc
 if(${JEMALLOC_ENABLED})
@@ -502,30 +512,6 @@ if(${BUILD_WCWIDTH})
     SET_TARGET_PROPERTIES(wcwidth PROPERTIES OUTPUT_NAME wcwidth)
 endif(${BUILD_WCWIDTH})
 
-# CRAFT
-if(${BUILD_WITH_CRAFT})
-    add_library(craft STATIC IMPORTED GLOBAL)
-    set_target_properties(craft PROPERTIES
-        IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/craft/.libs/libraft.a"
-        INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/craft/include"
-    )
-    # target_link_libraries(craft
-    #     INTERFACE pthread
-    # )
-endif(${BUILD_WITH_CRAFT})
-
-# TRAFT
-if(${BUILD_WITH_TRAFT})
-    add_library(traft STATIC IMPORTED GLOBAL)
-    set_target_properties(traft PROPERTIES
-        IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/traft/.libs/libraft.a"
-        INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/traft/include"
-    )
-    # target_link_libraries(craft
-    #     INTERFACE pthread
-    # )
-endif(${BUILD_WITH_TRAFT})
-
 # LIBUV
 if(${BUILD_WITH_UV})
     if (TD_WINDOWS)
@@ -536,18 +522,6 @@ if(${BUILD_WITH_UV})
     endif ()
     add_subdirectory(libuv EXCLUDE_FROM_ALL)
 endif(${BUILD_WITH_UV})
-
-# BDB
-if(${BUILD_WITH_BDB})
-    add_library(bdb STATIC IMPORTED GLOBAL)
-    set_target_properties(bdb PROPERTIES
-        IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/bdb/libdb.a"
-        INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/bdb"
-    )
-    target_link_libraries(bdb
-        INTERFACE pthread
-    )
-endif(${BUILD_WITH_BDB})
 
 # SQLite
 # see https://stackoverflow.com/questions/8774593/cmake-link-to-external-library#comment58570736_10550334
@@ -618,18 +592,27 @@ if(${BUILD_GEOS})
     if(${TD_LINUX})
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS_REL}")
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_REL}")
-        IF ("${CMAKE_BUILD_TYPE}" STREQUAL "")
+        if ("${CMAKE_BUILD_TYPE}" STREQUAL "")
             SET(CMAKE_BUILD_TYPE Release)
         endif()
     endif(${TD_LINUX})
     option(BUILD_SHARED_LIBS "Build GEOS with shared libraries" OFF)
     add_subdirectory(geos EXCLUDE_FROM_ALL)
-    unset(CMAKE_CXX_STANDARD CACHE) # undo libgeos's setting of global CMAKE_CXX_STANDARD
+    if (${TD_WINDOWS})
+        SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+        SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+    else ()
+        unset(CMAKE_CXX_STANDARD CACHE) # undo libgeos's setting of global CMAKE_CXX_STANDARD
+    endif(${TD_WINDOWS})
     target_include_directories(
         geos_c
         PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/geos/include>
     )
 endif(${BUILD_GEOS})
+
+if (${BUILD_PCRE2})
+    add_subdirectory(pcre2 EXCLUDE_FROM_ALL)
+endif(${BUILD_PCRE2})
 
 # ================================================================================================
 # Build test

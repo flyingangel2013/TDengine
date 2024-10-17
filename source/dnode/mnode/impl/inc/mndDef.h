@@ -74,6 +74,10 @@ typedef enum {
   MND_OPER_SUBSCRIBE,
   MND_OPER_CREATE_TOPIC,
   MND_OPER_DROP_TOPIC,
+  MND_OPER_CREATE_VIEW,
+  MND_OPER_DROP_VIEW,
+  MND_OPER_CONFIG_CLUSTER,
+  MND_OPER_BALANCE_VGROUP_LEADER,
 } EOperType;
 
 typedef enum {
@@ -99,8 +103,10 @@ typedef enum {
   TRN_CONFLICT_GLOBAL = 1,
   TRN_CONFLICT_DB = 2,
   TRN_CONFLICT_DB_INSIDE = 3,
-  TRN_CONFLICT_TOPIC = 4,
-  TRN_CONFLICT_TOPIC_INSIDE = 5,
+//  TRN_CONFLICT_TOPIC = 4,
+//  TRN_CONFLICT_TOPIC_INSIDE = 5,
+  TRN_CONFLICT_ARBGROUP = 6,
+  TRN_CONFLICT_TSMA = 7,
 } ETrnConflct;
 
 typedef enum {
@@ -137,6 +143,13 @@ typedef enum {
   DND_REASON_CHARSET_NOT_MATCH,
   DND_REASON_TTL_CHANGE_ON_WRITE_NOT_MATCH,
   DND_REASON_ENABLE_WHITELIST_NOT_MATCH,
+  DND_REASON_ENCRYPTION_KEY_NOT_MATCH,
+  DND_REASON_STATUS_MONITOR_NOT_MATCH,
+  DND_REASON_STATUS_MONITOR_SWITCH_NOT_MATCH,
+  DND_REASON_STATUS_MONITOR_INTERVAL_NOT_MATCH,
+  DND_REASON_STATUS_MONITOR_SLOW_LOG_THRESHOLD_NOT_MATCH,
+  DND_REASON_STATUS_MONITOR_SLOW_LOG_SQL_MAX_LEN_NOT_MATCH,
+  DND_REASON_STATUS_MONITOR_SLOW_LOG_SCOPE_NOT_MATCH,
   DND_REASON_OTHERS
 } EDndReason;
 
@@ -146,6 +159,7 @@ typedef enum {
   CONSUMER_REMOVE_REB,      // remove after rebalance
   CONSUMER_UPDATE_REC,      // update after recover
   CONSUMER_UPDATE_SUB,      // update after subscribe req
+  CONSUMER_INSERT_SUB,
 } ECsmUpdateType;
 
 typedef struct {
@@ -155,11 +169,12 @@ typedef struct {
   ETrnConflct   conflict;
   ETrnExec      exec;
   EOperType     oper;
+  bool          changeless;
   int32_t       code;
   int32_t       failedTimes;
   void*         rpcRsp;
   int32_t       rpcRspLen;
-  int32_t       redoActionPos;
+  int32_t       actionPos;
   SArray*       prepareActions;
   SArray*       redoActions;
   SArray*       undoActions;
@@ -173,6 +188,7 @@ typedef struct {
   tmsg_t        originRpcType;
   char          dbname[TSDB_TABLE_FNAME_LEN];
   char          stbname[TSDB_TABLE_FNAME_LEN];
+  SHashObj*     arbGroupIds;
   int32_t       startFunc;
   int32_t       stopFunc;
   int32_t       paramLen;
@@ -202,16 +218,18 @@ typedef struct {
   int32_t    numOfVnodes;
   int32_t    numOfOtherNodes;
   int32_t    numOfSupportVnodes;
+  int32_t    numOfDiskCfg;
   float      numOfCores;
   int64_t    memTotal;
   int64_t    memAvail;
   int64_t    memUsed;
   EDndReason offlineReason;
+  uint32_t   encryptionKeyChksum;
+  int8_t     encryptionKeyStat;
   uint16_t   port;
   char       fqdn[TSDB_FQDN_LEN];
   char       ep[TSDB_EP_LEN];
-  char       active[TSDB_ACTIVE_KEY_LEN];
-  char       connActive[TSDB_CONN_ACTIVE_KEY_LEN];
+  char       machineId[TSDB_MACHINE_ID_LEN + 1];
 } SDnodeObj;
 
 typedef struct {
@@ -241,6 +259,41 @@ typedef struct {
   int64_t    updateTime;
   SDnodeObj* pDnode;
 } SSnodeObj;
+
+typedef struct {
+  int32_t dnodeId;
+  char    token[TSDB_ARB_TOKEN_SIZE];
+  int8_t  acked;
+} SArbAssignedLeader;
+
+typedef struct {
+  int32_t dnodeId;
+} SArbMemberInfo;
+
+typedef struct {
+  int32_t nextHbSeq;
+  int32_t responsedHbSeq;
+  char    token[TSDB_ARB_TOKEN_SIZE];
+  int64_t lastHbMs;
+} SArbMemberState;
+
+typedef struct {
+  SArbMemberInfo  info;
+  SArbMemberState state;
+} SArbGroupMember;
+
+typedef struct {
+  int32_t            vgId;
+  int64_t            dbUid;
+  SArbGroupMember    members[TSDB_ARB_GROUP_MEMBER_NUM];
+  int8_t             isSync;
+  SArbAssignedLeader assignedLeader;
+  int64_t            version;
+
+  // following fields will not be duplicated
+  bool          mutexInited;
+  TdThreadMutex mutex;
+} SArbGroup;
 
 typedef struct {
   int32_t maxUsers;
@@ -277,15 +330,21 @@ typedef struct {
 } SAcctObj;
 
 typedef struct {
-  char          user[TSDB_USER_LEN];
-  char          pass[TSDB_PASSWORD_LEN];
-  char          acct[TSDB_USER_LEN];
-  int64_t       createdTime;
-  int64_t       updateTime;
-  int8_t        superUser;
-  int8_t        sysInfo;
-  int8_t        enable;
-  int8_t        reserve;
+  char    user[TSDB_USER_LEN];
+  char    pass[TSDB_PASSWORD_LEN];
+  char    acct[TSDB_USER_LEN];
+  int64_t createdTime;
+  int64_t updateTime;
+  int8_t  superUser;
+  int8_t  sysInfo;
+  int8_t  enable;
+  union {
+    uint8_t flag;
+    struct {
+      uint8_t createdb : 1;
+      uint8_t reserve : 7;
+    };
+  };
   int32_t       acctId;
   int32_t       authVersion;
   int32_t       passVersion;
@@ -297,6 +356,10 @@ typedef struct {
   SHashObj* topics;
   SHashObj* readTbs;
   SHashObj* writeTbs;
+  SHashObj* alterTbs;
+  SHashObj* readViews;
+  SHashObj* writeViews;
+  SHashObj* alterViews;
   SHashObj* useDbs;
   SRWLatch  lock;
 } SUserObj;
@@ -334,6 +397,11 @@ typedef struct {
   int32_t walRollPeriod;
   int64_t walRetentionSize;
   int64_t walSegmentSize;
+  int32_t s3ChunkSize;
+  int32_t s3KeepLocal;
+  int8_t  s3Compact;
+  int8_t  withArbitrator;
+  int8_t  encryptAlgorithm;
 } SDbCfg;
 
 typedef struct {
@@ -349,6 +417,7 @@ typedef struct {
   SRWLatch lock;
   int64_t  stateTs;
   int64_t  compactStartTime;
+  int32_t  tsmaVersion;
 } SDbObj;
 
 typedef struct {
@@ -408,12 +477,14 @@ typedef struct {
   int32_t        tagsFilterLen;
   int32_t        sqlLen;
   int32_t        astLen;
+  int32_t        version;
   char*          expr;
   char*          tagsFilter;
   char*          sql;
   char*          ast;
   SSchemaWrapper schemaRow;  // for dstVgroup
   SSchemaWrapper schemaTag;  // for dstVgroup
+  char           baseSmaName[TSDB_TABLE_FNAME_LEN];
 } SSmaObj;
 
 typedef struct {
@@ -429,32 +500,38 @@ typedef struct {
 } SIdxObj;
 
 typedef struct {
-  char     name[TSDB_TABLE_FNAME_LEN];
-  char     db[TSDB_DB_FNAME_LEN];
-  int64_t  createdTime;
-  int64_t  updateTime;
-  int64_t  uid;
-  int64_t  dbUid;
-  int32_t  tagVer;
-  int32_t  colVer;
-  int32_t  smaVer;
-  int32_t  nextColId;
-  int64_t  maxdelay[2];
-  int64_t  watermark[2];
-  int32_t  ttl;
-  int32_t  numOfColumns;
-  int32_t  numOfTags;
-  int32_t  numOfFuncs;
-  int32_t  commentLen;
-  int32_t  ast1Len;
-  int32_t  ast2Len;
-  SArray*  pFuncs;
-  SSchema* pColumns;
-  SSchema* pTags;
-  char*    comment;
-  char*    pAst1;
-  char*    pAst2;
-  SRWLatch lock;
+  col_id_t colId;
+  int32_t  cmprAlg;
+} SCmprObj;
+typedef struct {
+  char      name[TSDB_TABLE_FNAME_LEN];
+  char      db[TSDB_DB_FNAME_LEN];
+  int64_t   createdTime;
+  int64_t   updateTime;
+  int64_t   uid;
+  int64_t   dbUid;
+  int32_t   tagVer;
+  int32_t   colVer;
+  int32_t   smaVer;
+  int32_t   nextColId;
+  int64_t   maxdelay[2];
+  int64_t   watermark[2];
+  int32_t   ttl;
+  int32_t   numOfColumns;
+  int32_t   numOfTags;
+  int32_t   numOfFuncs;
+  int32_t   commentLen;
+  int32_t   ast1Len;
+  int32_t   ast2Len;
+  SArray*   pFuncs;
+  SSchema*  pColumns;
+  SSchema*  pTags;
+  char*     comment;
+  char*     pAst1;
+  char*     pAst2;
+  SRWLatch  lock;
+  int8_t    source;
+  SColCmpr* pCmpr;
 } SStbObj;
 
 typedef struct {
@@ -492,32 +569,6 @@ typedef struct {
 } SShowObj;
 
 typedef struct {
-  int64_t id;
-  int8_t  type;
-  int8_t  replica;
-  int16_t numOfColumns;
-  int32_t rowSize;
-  int32_t numOfRows;
-  int32_t numOfReads;
-  int32_t payloadLen;
-  void*   pIter;
-  SMnode* pMnode;
-  char    db[TSDB_DB_FNAME_LEN];
-  int16_t offset[TSDB_MAX_COLUMNS];
-  int32_t bytes[TSDB_MAX_COLUMNS];
-  char    payload[];
-} SSysTableRetrieveObj;
-
-typedef struct {
-  char    key[TSDB_PARTITION_KEY_LEN];
-  int64_t dbUid;
-  int64_t offset;
-} SMqOffsetObj;
-
-int32_t tEncodeSMqOffsetObj(void** buf, const SMqOffsetObj* pOffset);
-void*   tDecodeSMqOffsetObj(void* buf, SMqOffsetObj* pOffset);
-
-typedef struct {
   char           name[TSDB_TOPIC_FNAME_LEN];
   char           db[TSDB_DB_FNAME_LEN];
   char           createUser[TSDB_USER_LEN];
@@ -546,11 +597,14 @@ typedef struct {
 typedef struct {
   int64_t  consumerId;
   char     cgroup[TSDB_CGROUP_LEN];
-  char     clientId[256];
+  char     clientId[TSDB_CLIENT_ID_LEN];
+  char     user[TSDB_USER_LEN];
+  char     fqdn[TSDB_FQDN_LEN];
   int8_t   updateType;  // used only for update
   int32_t  epoch;
   int32_t  status;
   int32_t  hbStatus;          // hbStatus is not applicable to serialization
+  int32_t  pollStatus;        // pollStatus is not applicable to serialization
   SRWLatch lock;              // lock is used for topics update
   SArray*  currentTopics;     // SArray<char*>
   SArray*  rebNewTopics;      // SArray<char*>
@@ -570,10 +624,14 @@ typedef struct {
   int8_t  autoCommit;
   int32_t autoCommitInterval;
   int32_t resetOffsetCfg;
+  int32_t sessionTimeoutMs;
+  int32_t maxPollIntervalMs;
 } SMqConsumerObj;
 
-SMqConsumerObj* tNewSMqConsumerObj(int64_t consumerId, char cgroup[TSDB_CGROUP_LEN]);
-void            tDeleteSMqConsumerObj(SMqConsumerObj* pConsumer, bool delete);
+int32_t         tNewSMqConsumerObj(int64_t consumerId, char *cgroup, int8_t updateType,
+                           char *topic, SCMSubscribeReq *subscribe, SMqConsumerObj** ppConsumer);
+void            tClearSMqConsumerObj(SMqConsumerObj* pConsumer);
+void            tDeleteSMqConsumerObj(SMqConsumerObj* pConsumer);
 int32_t         tEncodeSMqConsumerObj(void** buf, const SMqConsumerObj* pConsumer);
 void*           tDecodeSMqConsumerObj(const void* buf, SMqConsumerObj* pConsumer, int8_t sver);
 
@@ -614,8 +672,8 @@ typedef struct {
   char*     qmsg;  // SubPlanToString
 } SMqSubscribeObj;
 
-SMqSubscribeObj* tNewSubscribeObj(const char key[TSDB_SUBSCRIBE_KEY_LEN]);
-SMqSubscribeObj* tCloneSubscribeObj(const SMqSubscribeObj* pSub);
+int32_t          tNewSubscribeObj(const char *key, SMqSubscribeObj **ppSub);
+int32_t          tCloneSubscribeObj(const SMqSubscribeObj* pSub, SMqSubscribeObj **ppSub);
 void             tDeleteSubscribeObj(SMqSubscribeObj* pSub);
 int32_t          tEncodeSubscribeObj(void** buf, const SMqSubscribeObj* pSub);
 void*            tDecodeSubscribeObj(const void* buf, SMqSubscribeObj* pSub, int8_t sver);
@@ -669,8 +727,7 @@ typedef struct SStreamConf {
 } SStreamConf;
 
 typedef struct {
-  char name[TSDB_STREAM_FNAME_LEN];
-  // ctl
+  char     name[TSDB_STREAM_FNAME_LEN];
   SRWLatch lock;
 
   // create info
@@ -715,20 +772,138 @@ typedef struct {
 
   // 3.0.5.
   int64_t checkpointId;
+
+  int32_t indexForMultiAggBalance;
+  int8_t  subTableWithoutMd5;
   char    reserve[256];
 
 } SStreamObj;
 
+typedef struct SStreamSeq {
+  char     name[24];
+  uint64_t seq;
+  SRWLatch lock;
+} SStreamSeq;
 int32_t tEncodeSStreamObj(SEncoder* pEncoder, const SStreamObj* pObj);
 int32_t tDecodeSStreamObj(SDecoder* pDecoder, SStreamObj* pObj, int32_t sver);
 void    tFreeStreamObj(SStreamObj* pObj);
 
-// typedef struct {
-//   char    streamName[TSDB_STREAM_FNAME_LEN];
-//   int64_t uid;
-//   int64_t streamUid;
-//   SArray* childInfo;  // SArray<SStreamChildEpInfo>
-// } SStreamCheckpointObj;
+#define VIEW_TYPE_UPDATABLE    (1 << 0)
+#define VIEW_TYPE_MATERIALIZED (1 << 1)
+
+typedef struct {
+  char     fullname[TSDB_VIEW_FNAME_LEN];
+  char     name[TSDB_VIEW_NAME_LEN];
+  char     dbFName[TSDB_DB_FNAME_LEN];
+  char     user[TSDB_USER_LEN];
+  char*    querySql;
+  char*    parameters;
+  void**   defaultValues;
+  char*    targetTable;
+  uint64_t viewId;
+  uint64_t dbId;
+  int64_t  createdTime;
+  int32_t  version;
+  int8_t   precision;
+  int8_t   type;
+  int32_t  numOfCols;
+  SSchema* pSchema;
+  SRWLatch lock;
+} SViewObj;
+
+int32_t tEncodeSViewObj(SEncoder* pEncoder, const SViewObj* pObj);
+int32_t tDecodeSViewObj(SDecoder* pDecoder, SViewObj* pObj, int32_t sver);
+void    tFreeSViewObj(SViewObj* pObj);
+
+typedef struct {
+  int32_t compactDetailId;
+  int32_t compactId;
+  int32_t vgId;
+  int32_t dnodeId;
+  int32_t numberFileset;
+  int32_t finished;
+  int64_t startTime;
+  int32_t newNumberFileset;
+  int32_t newFinished;
+} SCompactDetailObj;
+
+typedef struct {
+  int32_t compactId;
+  char    dbname[TSDB_TABLE_FNAME_LEN];
+  int64_t startTime;
+  SArray* compactDetail;
+} SCompactObj;
+
+// SGrantLogObj
+typedef enum {
+  GRANT_STATE_INIT = 0,
+  GRANT_STATE_UNGRANTED = 1,
+  GRANT_STATE_GRANTED = 2,
+  GRANT_STATE_EXPIRED = 3,
+  GRANT_STATE_REVOKED = 4,
+  GRANT_STATE_MAX,
+} EGrantState;
+
+typedef enum {
+  GRANT_STATE_REASON_INIT = 0,
+  GRANT_STATE_REASON_ALTER = 1,     // alter activeCode 'revoked' or 'xxx'
+  GRANT_STATE_REASON_MISMATCH = 2,  // dnode machine mismatch
+  GRANT_STATE_REASON_EXPIRE = 3,    // expire
+  GRANT_STATE_REASON_MAX,
+} EGrantStateReason;
+
+#define GRANT_STATE_NUM       30
+#define GRANT_ACTIVE_NUM      10
+#define GRANT_ACTIVE_HEAD_LEN 30
+
+typedef struct {
+  union {
+    int64_t u0;
+    struct {
+      int64_t ts : 40;
+      int64_t lastState : 4;
+      int64_t state : 4;
+      int64_t reason : 8;
+      int64_t reserve : 8;
+    };
+  };
+} SGrantState;
+
+typedef struct {
+  union {
+    int64_t u0;
+    struct {
+      int64_t ts : 40;
+      int64_t reserve : 24;
+    };
+  };
+  char active[GRANT_ACTIVE_HEAD_LEN + 1];
+} SGrantActive;
+
+typedef struct {
+  union {
+    int64_t u0;
+    struct {
+      int64_t ts : 40;
+      int64_t id : 24;
+    };
+  };
+  char machine[TSDB_MACHINE_ID_LEN + 1];
+} SGrantMachine;
+
+typedef struct {
+  int32_t      id;
+  int8_t       nStates;
+  int8_t       nActives;
+  int64_t      createTime;
+  int64_t      updateTime;
+  int64_t      upgradeTime;
+  SGrantState  states[GRANT_STATE_NUM];
+  SGrantActive actives[GRANT_ACTIVE_NUM];
+  char*        active;
+  SArray*      pMachines;  // SGrantMachine
+  SRWLatch     lock;
+} SGrantLogObj;
 
 #ifdef __cplusplus
 }

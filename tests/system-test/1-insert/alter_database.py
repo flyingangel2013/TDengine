@@ -4,7 +4,8 @@ import time
 import socket
 import os
 import threading
-
+import psutil
+import platform
 from util.log import *
 from util.sql import *
 from util.cases import *
@@ -16,7 +17,18 @@ class TDTestCase:
         self.replicaVar = int(replicaVar)
         tdLog.debug("start to execute %s" % __file__)
         tdSql.init(conn.cursor(), logSql)
-        self.buffer_boundary = [3, 4097, 8193, 12289, 16384]
+        if platform.system().lower() == 'windows':
+            self.buffer_boundary = [3, 4097]
+        else:
+            self.buffer_boundary = [3, 4097, 8193, 12289, 16384]
+        # remove the value > free_memory, 70% is the weight to calculate the max value
+        # if platform.system() == "Linux" and platform.machine() == "aarch64":
+            # mem = psutil.virtual_memory()
+            # free_memory = mem.free * 0.7 / 1024 / 1024
+            # for item in self.buffer_boundary:
+            #     if item > free_memory:
+            #         self.buffer_boundary.remove(item)
+
         self.buffer_error = [self.buffer_boundary[0] -
                              1, self.buffer_boundary[-1]+1]
         # pages_boundary >= 64
@@ -25,11 +37,14 @@ class TDTestCase:
 
     def alter_buffer(self):
         tdSql.execute('create database db')
-        for buffer in self.buffer_boundary:
-            tdSql.execute(f'alter database db buffer {buffer}')
-            tdSql.query(
-                'select * from information_schema.ins_databases where name = "db"')
-            tdSql.checkEqual(tdSql.queryResult[0][8], buffer)
+        if platform.system() == "Linux" and platform.machine() == "aarch64":
+            tdLog.debug("Skip check points for Linux aarch64 due to environment settings")
+        else:
+            for buffer in self.buffer_boundary:
+                tdSql.execute(f'alter database db buffer {buffer}')
+                tdSql.query(
+                    'select * from information_schema.ins_databases where name = "db"')
+                tdSql.checkEqual(tdSql.queryResult[0][8], buffer)
         tdSql.execute('drop database db')
         tdSql.execute('create database db vgroups 10')
         for buffer in self.buffer_error:
@@ -50,6 +65,14 @@ class TDTestCase:
         # self.pages_error.append(tdSql.queryResult[0][10])
         for pages in self.pages_error:
             tdSql.error(f'alter database db pages {pages}')
+        tdSql.execute('drop database db')
+
+    def alter_encrypt_alrogithm(self):
+        tdSql.execute('create database db')
+        tdSql.checkEqual("Encryption is not allowed to be changed after database is created", tdSql.error('alter database db encrypt_algorithm \'sM4\''))
+        tdSql.checkEqual("Encryption is not allowed to be changed after database is created", tdSql.error('alter database db encrypt_algorithm \'noNe\''))
+        tdSql.checkEqual("Encryption is not allowed to be changed after database is created", tdSql.error('alter database db encrypt_algorithm \'\''))
+        tdSql.checkEqual("Invalid option encrypt_algorithm: none ", tdSql.error('alter database db encrypt_algorithm \'none \''))
         tdSql.execute('drop database db')
 
     def alter_same_options(self):
@@ -80,6 +103,7 @@ class TDTestCase:
         
         self.alter_buffer()
         self.alter_pages()
+        self.alter_encrypt_alrogithm()
         self.alter_same_options()
 
     def stop(self):

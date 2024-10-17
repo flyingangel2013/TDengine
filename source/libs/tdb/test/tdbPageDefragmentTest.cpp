@@ -141,7 +141,7 @@ static void generateBigVal(char *val, int valLen) {
 static TDB *openEnv(char const *envName, int const pageSize, int const pageNum) {
   TDB *pEnv = NULL;
 
-  int ret = tdbOpen(envName, pageSize, pageNum, &pEnv, 0);
+  int ret = tdbOpen(envName, pageSize, pageNum, &pEnv, 0, 0, NULL);
   if (ret) {
     pEnv = NULL;
   }
@@ -352,7 +352,7 @@ TEST(TdbPageDefragmentTest, DISABLED_simple_insert1) {
   taosRemoveDir("tdb");
 
   // Open Env
-  ret = tdbOpen("tdb", pageSize, 64, &pEnv, 0);
+  ret = tdbOpen("tdb", pageSize, 64, &pEnv, 0, 0, NULL);
   GTEST_ASSERT_EQ(ret, 0);
 
   // Create a database
@@ -468,8 +468,7 @@ TEST(TdbPageDefragmentTest, DISABLED_simple_insert1) {
   tdbTbClose(pDb);
 
   // Close Env
-  ret = tdbClose(pEnv);
-  GTEST_ASSERT_EQ(ret, 0);
+  tdbClose(pEnv);
 }
 
 // TEST(TdbPageDefragmentTest, DISABLED_seq_insert) {
@@ -485,7 +484,7 @@ TEST(TdbPageDefragmentTest, seq_insert) {
   taosRemoveDir("tdb");
 
   // Open Env
-  ret = tdbOpen("tdb", pageSize, 64, &pEnv, 0);
+  ret = tdbOpen("tdb", pageSize, 64, &pEnv, 0, 0, NULL);
   GTEST_ASSERT_EQ(ret, 0);
 
   // Create a database
@@ -551,8 +550,7 @@ TEST(TdbPageDefragmentTest, seq_insert) {
   tdbTbClose(pDb);
 
   // Close Env
-  ret = tdbClose(pEnv);
-  GTEST_ASSERT_EQ(ret, 0);
+  tdbClose(pEnv);
 }
 
 // TEST(TdbPageDefragmentTest, DISABLED_seq_delete) {
@@ -566,7 +564,7 @@ TEST(TdbPageDefragmentTest, seq_delete) {
   int const     pageSize = 1 * 1024 * 1024;
 
   // Open Env
-  ret = tdbOpen("tdb", pageSize, 64, &pEnv, 0);
+  ret = tdbOpen("tdb", pageSize, 64, &pEnv, 0, 0, NULL);
   GTEST_ASSERT_EQ(ret, 0);
 
   // Create a database
@@ -635,8 +633,7 @@ TEST(TdbPageDefragmentTest, seq_delete) {
   tdbTbClose(pDb);
 
   // Close Env
-  ret = tdbClose(pEnv);
-  GTEST_ASSERT_EQ(ret, 0);
+  tdbClose(pEnv);
 }
 
 // TEST(TdbPageDefragmentTest, DISABLED_defragment_insert) {
@@ -650,7 +647,7 @@ TEST(TdbPageDefragmentTest, defragment_insert) {
   int const     pageSize = 1 * 1024 * 1024;
 
   // Open Env
-  ret = tdbOpen("tdb", pageSize, 64, &pEnv, 0);
+  ret = tdbOpen("tdb", pageSize, 64, &pEnv, 0, 0, NULL);
   GTEST_ASSERT_EQ(ret, 0);
 
   // Create a database
@@ -717,6 +714,5 @@ TEST(TdbPageDefragmentTest, defragment_insert) {
   tdbTbClose(pDb);
 
   // Close Env
-  ret = tdbClose(pEnv);
-  GTEST_ASSERT_EQ(ret, 0);
+  tdbClose(pEnv);
 }

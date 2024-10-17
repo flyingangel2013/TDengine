@@ -22,18 +22,18 @@ class TDTestCase:
         self.vgroups    = 4
         self.ctbNum     = 10
         self.rowsPerTbl = 10000
-        self.duraion = '1h'
+        self.duraion = '1d'
 
     def init(self, conn, logSql, replicaVar=1):
         self.replicaVar = int(replicaVar)
         tdLog.debug(f"start to excute {__file__}")
-        tdSql.init(conn.cursor(), False)
+        tdSql.init(conn.cursor(), True)
 
     def create_database(self,tsql, dbName,dropFlag=1,vgroups=2,replica=1, duration:str='1d'):
         if dropFlag == 1:
             tsql.execute("drop database if exists %s"%(dbName))
 
-        tsql.execute("create database if not exists %s vgroups %d replica %d duration %s"%(dbName, vgroups, replica, duration))
+        tsql.execute("create database if not exists %s vgroups %d replica %d duration %s stt_trigger 1"%(dbName, vgroups, replica, duration))
         tdLog.debug("complete to create database %s"%(dbName))
         return
 
@@ -169,6 +169,16 @@ class TDTestCase:
         self.check_explain_res_has_row("Partition on", self.explain_sql(sql))
         self.check_explain_res_has_row("Sort", self.explain_sql(sql_hint))
 
+        sql = 'select count(*), c1 from meters partition by c1'
+        sql_hint = 'select /*+ sort_for_group() partition_first()*/ count(*), c1 from meters partition by c1'
+        self.check_explain_res_has_row("Sort", self.explain_sql(sql_hint))
+        sql_hint = 'select /*+ partition_first()*/ count(*), c1 from meters partition by c1'
+        self.check_explain_res_has_row("Partition on", self.explain_sql(sql_hint))
+        sql_hint = 'select /*+ partition_first() sort_for_group()*/ count(*), c1 from meters partition by c1'
+        self.check_explain_res_has_row("Partition on", self.explain_sql(sql_hint))
+        sql_hint = 'select /*+ sort_for_group() partition_first()*/ count(*), c1 from meters partition by c1'
+        self.check_explain_res_has_row("Sort", self.explain_sql(sql_hint))
+
     def add_order_by(self, sql: str, order_by: str, select_list: str = "*") -> str:
         return "select %s from (%s)t order by %s" % (select_list, sql, order_by)
 
@@ -256,11 +266,11 @@ class TDTestCase:
                 #'select _wstart as ts, count(*), t1 as a, %s from meters partition by t1, %s interval(30m)' % (col_name, col_name),
                 #'select _wstart as ts, count(*), t1 as a, %s from meters partition by t1, %s interval(1h)' %  (col_name, col_name),
 
-                'select _wstart as ts, count(*), %s as a, %s from meters partition by %s interval(1s)' %  (col_name, col_name, col_name),
+                'select _wstart as ts, count(*), %s as a, %s from meters partition by %s interval(30d)' %  (col_name, col_name, col_name),
                 #'select _wstart as ts, count(*), %s as a, %s from meters partition by %s interval(30s)' % (col_name, col_name, col_name),
                 #'select _wstart as ts, count(*), %s as a, %s from meters partition by %s interval(1m)' %  (col_name, col_name, col_name),
                 #'select _wstart as ts, count(*), %s as a, %s from meters partition by %s interval(30m)' % (col_name, col_name, col_name),
-                #'select _wstart as ts, count(*), %s as a, %s from meters partition by %s interval(1h)' %  (col_name, col_name, col_name),
+                'select _wstart as ts, count(*), %s as a, %s from meters partition by %s interval(1h)' %  (col_name, col_name, col_name),
 
                 'select _wstart as ts, count(*), tbname as a, %s from meters partition by %s, tbname interval(1s)' %  (col_name, col_name),
                 'select _wstart as ts, count(*), t1 as a, %s from meters partition by %s, t1 interval(1s)' %  (col_name, col_name),
@@ -307,6 +317,7 @@ class TDTestCase:
 
     def run(self):
         self.prepareTestEnv()
+        tdSql.execute('flush database test')
         #time.sleep(99999999)
         self.test_sort_for_partition_hint()
         self.test_sort_for_partition_res()

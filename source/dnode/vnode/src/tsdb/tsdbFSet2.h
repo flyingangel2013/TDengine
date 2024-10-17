@@ -22,9 +22,8 @@
 extern "C" {
 #endif
 
-typedef struct STFileSet STFileSet;
-typedef struct STFileOp  STFileOp;
-typedef struct SSttLvl   SSttLvl;
+typedef struct STFileOp STFileOp;
+typedef struct SSttLvl  SSttLvl;
 typedef TARRAY2(STFileObj *) TFileObjArray;
 typedef TARRAY2(SSttLvl *) TSttLvlArray;
 typedef TARRAY2(STFileOp) TFileOpArray;
@@ -41,10 +40,17 @@ typedef enum {
 
 // init/clear
 int32_t tsdbTFileSetInit(int32_t fid, STFileSet **fset);
-int32_t tsdbTFileSetInitDup(STsdb *pTsdb, const STFileSet *fset1, STFileSet **fset);
+int32_t tsdbTFileSetInitCopy(STsdb *pTsdb, const STFileSet *fset1, STFileSet **fset);
 int32_t tsdbTFileSetInitRef(STsdb *pTsdb, const STFileSet *fset1, STFileSet **fset);
-int32_t tsdbTFileSetClear(STFileSet **fset);
-int32_t tsdbTFileSetRemove(STFileSet **fset);
+void    tsdbTFileSetClear(STFileSet **fset);
+void    tsdbTFileSetRemove(STFileSet *fset);
+
+int32_t tsdbTFileSetFilteredInitDup(STsdb *pTsdb, const STFileSet *fset1, int64_t ever, STFileSet **fset,
+                                    TFileOpArray *fopArr);
+
+int32_t tsdbTFileSetRangeInitRef(STsdb *pTsdb, const STFileSet *fset1, int64_t sver, int64_t ever,
+                                 STFileSetRange **fsr);
+
 // to/from json
 int32_t tsdbTFileSetToJson(const STFileSet *fset, cJSON *json);
 int32_t tsdbJsonToTFileSet(STsdb *pTsdb, const cJSON *json, STFileSet **fset);
@@ -59,6 +65,11 @@ int64_t tsdbTFileSetMaxCid(const STFileSet *fset);
 SSttLvl *tsdbTFileSetGetSttLvl(STFileSet *fset, int32_t level);
 // is empty
 bool tsdbTFileSetIsEmpty(const STFileSet *fset);
+// stt
+int32_t tsdbSttLvlInit(int32_t level, SSttLvl **lvl);
+void    tsdbSttLvlClear(SSttLvl **lvl);
+// open channel
+int32_t tsdbTFileSetOpenChannel(STFileSet *fset);
 
 struct STFileOp {
   tsdb_fop_t optype;
@@ -74,8 +85,31 @@ struct SSttLvl {
 
 struct STFileSet {
   int32_t      fid;
+  int64_t      maxVerValid;
   STFileObj   *farr[TSDB_FTYPE_MAX];  // file array
   TSttLvlArray lvlArr[1];             // level array
+
+  // background task
+  bool         channelOpened;
+  SVAChannelID channel;
+  bool         mergeScheduled;
+
+  // sttTrigger = 1
+  TdThreadCond beginTask;
+  bool         taskRunning;
+  int32_t      numWaitTask;
+
+  // block commit variables
+  TdThreadCond canCommit;
+  int32_t      numWaitCommit;
+  bool         blockCommit;
+};
+
+struct STFileSetRange {
+  int32_t    fid;
+  int64_t    sver;
+  int64_t    ever;
+  STFileSet *fset;
 };
 
 #ifdef __cplusplus

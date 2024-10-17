@@ -17,6 +17,7 @@
 
 #if 0
 #undef TD_MSG_INFO_
+#undef TD_MSG_TYPE_INFO_
 #undef TD_MSG_NUMBER_
 #undef TD_MSG_DICT_
 #undef TD_MSG_SEG_CODE_
@@ -24,50 +25,87 @@
 
 #if defined(TD_MSG_INFO_)
 
-#undef TD_NEW_MSG_SEG
-#undef TD_DEF_MSG_TYPE
-#define TD_NEW_MSG_SEG(TYPE) "null",
-#define TD_DEF_MSG_TYPE(TYPE, MSG, REQ, RSP) MSG, MSG "-rsp",
+  #undef TD_NEW_MSG_SEG
+  #undef TD_DEF_MSG_TYPE
+  #undef TD_CLOSE_MSG_SEG
+  #define TD_NEW_MSG_SEG(TYPE) "null",
+  #define TD_DEF_MSG_TYPE(TYPE, MSG, REQ, RSP) MSG, MSG "-rsp",
+  #define TD_CLOSE_MSG_SEG(TYPE)
 
-char *tMsgInfo[] = {
+  char *tMsgInfo[] = {
+
+#elif defined(TD_MSG_RANGE_CODE_)
+
+  #undef TD_NEW_MSG_SEG
+  #undef TD_DEF_MSG_TYPE
+  #undef TD_CLOSE_MSG_SEG
+  #define TD_NEW_MSG_SEG(TYPE)
+  #define TD_DEF_MSG_TYPE(TYPE, MSG, REQ, RSP)
+  #define TD_CLOSE_MSG_SEG(TYPE) TYPE##_MAX,
+  int32_t tMsgRangeDict[] = {
 
 #elif defined(TD_MSG_NUMBER_)
 
-#undef TD_NEW_MSG_SEG
-#undef TD_DEF_MSG_TYPE
-#define TD_NEW_MSG_SEG(TYPE) TYPE##_NUM,
-#define TD_DEF_MSG_TYPE(TYPE, MSG, REQ, RSP) TYPE##_NUM, TYPE##_RSP_NUM,
+  #undef TD_NEW_MSG_SEG
+  #undef TD_DEF_MSG_TYPE
+  #undef TD_CLOSE_MSG_SEG
+  #define TD_NEW_MSG_SEG(TYPE) TYPE##_NUM_MIN,
+  #define TD_DEF_MSG_TYPE(TYPE, MSG, REQ, RSP) TYPE##_NUM, TYPE##_RSP_NUM,
+  #define TD_CLOSE_MSG_SEG(TYPE)
 
-enum {
+  enum {
 
 #elif defined(TD_MSG_DICT_)
 
-#undef TD_NEW_MSG_SEG
-#undef TD_DEF_MSG_TYPE
-#define TD_NEW_MSG_SEG(TYPE) TYPE##_NUM,
-#define TD_DEF_MSG_TYPE(TYPE, MSG, REQ, RSP)
+  #undef TD_NEW_MSG_SEG
+  #undef TD_DEF_MSG_TYPE
+  #undef TD_CLOSE_MSG_SEG
+  #define TD_NEW_MSG_SEG(TYPE) TYPE##_NUM_MIN,
+  #define TD_DEF_MSG_TYPE(TYPE, MSG, REQ, RSP)
+  #define TD_CLOSE_MSG_SEG(type)
 
-int32_t tMsgDict[] = {
+  int32_t tMsgDict[] = {
+
 
 #elif defined(TD_MSG_SEG_CODE_)
 
-#undef TD_NEW_MSG_SEG
-#undef TD_DEF_MSG_TYPE
-#define TD_NEW_MSG_SEG(TYPE) TYPE##_SEG_CODE,
-#define TD_DEF_MSG_TYPE(TYPE, MSG, REQ, RSP)
+  #undef TD_NEW_MSG_SEG
+  #undef TD_DEF_MSG_TYPE
+  #undef TD_CLOSE_MSG_SEG
+  #define TD_NEW_MSG_SEG(TYPE) TYPE##_SEG_CODE,
+  #define TD_DEF_MSG_TYPE(TYPE, MSG, REQ, RSP)
+  #define TD_CLOSE_MSG_SEG(TYPE)
 
-enum {
+  enum {
+#elif defined(TD_MSG_TYPE_INFO_)
 
+  typedef struct {
+    const char *name;
+    const char *rspName;
+    int32_t type;
+    int32_t rspType;
+  } SMsgTypeInfo;
+
+  #undef TD_NEW_MSG_SEG
+  #undef TD_DEF_MSG_TYPE
+  #undef TD_CLOSE_MSG_SEG
+  #define TD_NEW_MSG_SEG(TYPE)
+  #define TD_DEF_MSG_TYPE(TYPE, MSG, REQ, RSP) { #TYPE, #TYPE "_RSP", TYPE, TYPE##_RSP },
+  #define TD_CLOSE_MSG_SEG(TYPE)
+
+  SMsgTypeInfo tMsgTypeInfo[] = {
 #else
 
-#undef TD_NEW_MSG_SEG
-#undef TD_DEF_MSG_TYPE
-#define TD_NEW_MSG_SEG(TYPE) TYPE = ((TYPE##_SEG_CODE) << 8),
-#define TD_DEF_MSG_TYPE(TYPE, MSG, REQ, RSP) TYPE, TYPE##_RSP,
+  #undef TD_NEW_MSG_SEG
+  #undef TD_DEF_MSG_TYPE
+  #undef TD_CLOSE_MSG_SEG
+  #define TD_NEW_MSG_SEG(TYPE) TYPE##_MIN = ((TYPE##_SEG_CODE) << 8),
+  #define TD_DEF_MSG_TYPE(TYPE, MSG, REQ, RSP) TYPE, TYPE##_RSP,
+  #define TD_CLOSE_MSG_SEG(TYPE) TYPE##_MAX,
 
-enum { // WARN: new msg should be appended to segment tail
+  enum { // WARN: new msg should be appended to segment tail
 #endif
-  TD_NEW_MSG_SEG(TDMT_DND_MSG)
+  TD_NEW_MSG_SEG(TDMT_DND_MSG)    // 0<<8
   TD_DEF_MSG_TYPE(TDMT_DND_CREATE_MNODE, "dnode-create-mnode", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_DND_DROP_MNODE, "dnode-drop-mnode", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_DND_CREATE_QNODE, "dnode-create-qnode", NULL, NULL)
@@ -82,12 +120,14 @@ enum { // WARN: new msg should be appended to segment tail
   TD_DEF_MSG_TYPE(TDMT_DND_NET_TEST, "net-test", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_DND_CONFIG_DNODE, "config-dnode", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_DND_SYSTABLE_RETRIEVE, "dnode-retrieve", NULL, NULL)
-  TD_DEF_MSG_TYPE(TDMT_DND_MAX_MSG, "dnd-max", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_DND_UNUSED_CODE, "dnd-unused", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_DND_ALTER_MNODE_TYPE, "dnode-alter-mnode-type", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_DND_ALTER_VNODE_TYPE, "dnode-alter-vnode-type", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_DND_CHECK_VNODE_LEARNER_CATCHUP, "dnode-check-vnode-learner-catchup", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_DND_CREATE_ENCRYPT_KEY, "create-encrypt-key", NULL, NULL)
+  TD_CLOSE_MSG_SEG(TDMT_DND_MSG)
 
-  TD_NEW_MSG_SEG(TDMT_MND_MSG)
+  TD_NEW_MSG_SEG(TDMT_MND_MSG)  // 1<<8
   TD_DEF_MSG_TYPE(TDMT_MND_CONNECT, "connect", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_MND_CREATE_ACCT, "create-acct", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_MND_ALTER_ACCT, "alter-acct", NULL, NULL)
@@ -184,14 +224,39 @@ enum { // WARN: new msg should be appended to segment tail
   TD_DEF_MSG_TYPE(TDMT_MND_RESTORE_DNODE, "restore-dnode", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_MND_PAUSE_STREAM, "pause-stream", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_MND_RESUME_STREAM, "resume-stream", NULL, NULL)
-  TD_DEF_MSG_TYPE(TDMT_MND_STREAM_CHECKPOINT_TIMER, "stream-checkpoint-tmr", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_MND_STREAM_CHECKPOINT_TIMER, "stream-checkpoint-tmr", NULL, NULL)            // not used
   TD_DEF_MSG_TYPE(TDMT_MND_STREAM_BEGIN_CHECKPOINT, "stream-begin-checkpoint", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_MND_STREAM_CHECKPOINT_CANDIDITATE, "stream-checkpoint-remain", NULL, NULL)   // not used
   TD_DEF_MSG_TYPE(TDMT_MND_STREAM_NODECHANGE_CHECK, "stream-nodechange-check", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_MND_TRIM_DB_TIMER, "trim-db-tmr", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_MND_GRANT_NOTIFY, "grant-notify", NULL, NULL)
-  TD_DEF_MSG_TYPE(TDMT_MND_MAX_MSG, "mnd-max", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_MND_CREATE_VIEW, "create-view", SCMCreateViewReq, NULL)
+  TD_DEF_MSG_TYPE(TDMT_MND_DROP_VIEW, "drop-view", SCMDropViewReq, NULL)
+  TD_DEF_MSG_TYPE(TDMT_MND_VIEW_META, "view-meta", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_MND_STATIS, "statis", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_MND_KILL_COMPACT, "kill-compact", SKillCompactReq, NULL)
+  TD_DEF_MSG_TYPE(TDMT_MND_COMPACT_TIMER, "compact-tmr", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_MND_STREAM_REQ_CHKPT, "stream-req-checkpoint", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_MND_CONFIG_CLUSTER, "config-cluster", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_MND_CREATE_ENCRYPT_KEY, "create-encrypt-key", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_MND_S3MIGRATE_DB, "s3migrate-db", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_MND_S3MIGRATE_DB_TIMER, "s3migrate-db-tmr", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_MND_UNUSED2, "mnd-unused2", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_MND_CREATE_TSMA, "create-tsma", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_MND_DROP_TSMA, "drop-tsma", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_MND_STB_DROP, "drop-stb", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_MND_GET_TABLE_TSMA, "get-table-tsma", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_MND_GET_TSMA, "get-tsma", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_MND_DROP_TB_WITH_TSMA, "drop-tb-with-tsma", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_MND_STREAM_UPDATE_CHKPT_EVT, "stream-update-chkpt-evt", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_MND_STREAM_CHKPT_REPORT, "stream-chkpt-report", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_MND_STREAM_CONSEN_TIMER, "stream-consen-tmr", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_MND_STREAM_DROP_ORPHANTASKS, "stream-drop-orphan-tasks", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_MND_STREAM_TASK_RESET, "stream-reset-tasks", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_MND_UPDATE_DNODE_INFO, "update-dnode-info", NULL, NULL)
+  TD_CLOSE_MSG_SEG(TDMT_END_MND_MSG)
 
-  TD_NEW_MSG_SEG(TDMT_VND_MSG)
+  TD_NEW_MSG_SEG(TDMT_VND_MSG)  // 2<<8
   TD_DEF_MSG_TYPE(TDMT_VND_SUBMIT, "submit", SSubmitReq, SSubmitRsp)
   TD_DEF_MSG_TYPE(TDMT_VND_CREATE_TABLE, "create-table", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_VND_ALTER_TABLE, "alter-table", NULL, NULL)
@@ -238,9 +303,16 @@ enum { // WARN: new msg should be appended to segment tail
   TD_DEF_MSG_TYPE(TDMT_VND_CREATE_INDEX, "vnode-create-index", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_VND_DROP_INDEX, "vnode-drop-index", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_VND_DISABLE_WRITE, "vnode-disable-write", NULL, NULL)
-  TD_DEF_MSG_TYPE(TDMT_VND_MAX_MSG, "vnd-max", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_VND_QUERY_COMPACT_PROGRESS, "vnode-query-compact-progress", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_VND_KILL_COMPACT, "kill-compact", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_VND_S3MIGRATE, "vnode-s3migrate", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_VND_ARB_HEARTBEAT, "vnode-arb-hb", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_VND_ARB_CHECK_SYNC, "vnode-arb-check-sync", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_VND_FETCH_TTL_EXPIRED_TBS, "vnode-fetch-ttl-expired-tbs", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_VND_TABLE_NAME, "vnode-table-name", NULL, NULL)
+  TD_CLOSE_MSG_SEG(TDMT_VND_MSG)
 
-  TD_NEW_MSG_SEG(TDMT_SCH_MSG)
+  TD_NEW_MSG_SEG(TDMT_SCH_MSG)  // 3<<8
   TD_DEF_MSG_TYPE(TDMT_SCH_QUERY, "query", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_SCH_MERGE_QUERY, "merge-query", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_SCH_QUERY_CONTINUE, "query-continue", NULL, NULL)
@@ -252,28 +324,33 @@ enum { // WARN: new msg should be appended to segment tail
   TD_DEF_MSG_TYPE(TDMT_SCH_EXPLAIN, "explain", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_SCH_LINK_BROKEN, "link-broken", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_SCH_TASK_NOTIFY, "task-notify", NULL, NULL)
-  TD_DEF_MSG_TYPE(TDMT_SCH_MAX_MSG, "sch-max", NULL, NULL)
+  TD_CLOSE_MSG_SEG(TDMT_SCH_MSG)
 
 
-  TD_NEW_MSG_SEG(TDMT_STREAM_MSG)
-  TD_DEF_MSG_TYPE(TDMT_STREAM_TASK_DEPLOY, "stream-task-deploy", SStreamTaskDeployReq, SStreamTaskDeployRsp)
+  TD_NEW_MSG_SEG(TDMT_STREAM_MSG)   //4 << 8
+  TD_DEF_MSG_TYPE(TDMT_STREAM_TASK_DEPLOY, "stream-task-deploy", SStreamTaskDeployReq, SStreamTaskDeployRsp)  //1025 1026
   TD_DEF_MSG_TYPE(TDMT_STREAM_TASK_DROP, "stream-task-drop", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_STREAM_TASK_RUN, "stream-task-run", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_STREAM_TASK_DISPATCH, "stream-task-dispatch", NULL, NULL)
-  TD_DEF_MSG_TYPE(TDMT_STREAM_UNUSED1, "stream-unused1", NULL, NULL)
-  TD_DEF_MSG_TYPE(TDMT_STREAM_RETRIEVE, "stream-retrieve", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_STREAM_TASK_UPDATE_CHKPT, "stream-update-chkptinfo", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_STREAM_RETRIEVE, "stream-retrieve", NULL, NULL)  //1035 1036
   TD_DEF_MSG_TYPE(TDMT_STREAM_TASK_CHECKPOINT_READY, "stream-checkpoint-ready", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_STREAM_TASK_REPORT_CHECKPOINT, "stream-report-checkpoint", NULL, NULL)
-  TD_DEF_MSG_TYPE(TDMT_STREAM_TASK_RESTORE_CHECKPOINT, "stream-restore-checkpoint", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_STREAM_TASK_RESTORE_CHECKPOINT, "stream-restore-checkpoint", NULL, NULL)  //unused
   TD_DEF_MSG_TYPE(TDMT_STREAM_TASK_PAUSE, "stream-task-pause", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_STREAM_TASK_RESUME, "stream-task-resume", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_STREAM_TASK_STOP, "stream-task-stop", NULL, NULL)
-  TD_DEF_MSG_TYPE(TDMT_STREAM_MAX_MSG, "stream-max", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_STREAM_UNUSED, "stream-unused", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_STREAM_CREATE, "stream-create", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_STREAM_DROP, "stream-drop", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_STREAM_RETRIEVE_TRIGGER, "stream-retri-trigger", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_STREAM_CONSEN_CHKPT, "stream-consen-chkpt", NULL, NULL)
+  TD_CLOSE_MSG_SEG(TDMT_STREAM_MSG)
 
-  TD_NEW_MSG_SEG(TDMT_MON_MSG)
-  TD_DEF_MSG_TYPE(TDMT_MON_MAX_MSG, "monitor-max", NULL, NULL)
+  TD_NEW_MSG_SEG(TDMT_MON_MSG)  //5 << 8
+  TD_CLOSE_MSG_SEG(TDMT_MON_MSG)
 
-  TD_NEW_MSG_SEG(TDMT_SYNC_MSG)
+  TD_NEW_MSG_SEG(TDMT_SYNC_MSG) //6 << 8
   TD_DEF_MSG_TYPE(TDMT_SYNC_TIMEOUT, "sync-timer", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_SYNC_TIMEOUT_ELECTION, "sync-elect", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_SYNC_PING_REPLY, "sync-ping-reply", NULL, NULL) // no longer used
@@ -299,21 +376,24 @@ enum { // WARN: new msg should be appended to segment tail
   TD_DEF_MSG_TYPE(TDMT_SYNC_HEARTBEAT, "sync-heartbeat", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_SYNC_HEARTBEAT_REPLY, "sync-heartbeat-reply", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_SYNC_LOCAL_CMD, "sync-local-cmd", NULL, NULL)
-  TD_DEF_MSG_TYPE(TDMT_SYNC_PRE_SNAPSHOT, "sync-pre-snapshot", NULL, NULL)             // no longer used
-  TD_DEF_MSG_TYPE(TDMT_SYNC_PRE_SNAPSHOT_REPLY, "sync-pre-snapshot-reply", NULL, NULL) // no longer used
-  TD_DEF_MSG_TYPE(TDMT_SYNC_MAX_MSG, "sync-max", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_SYNC_PREP_SNAPSHOT, "sync-prep-snapshot", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_SYNC_PREP_SNAPSHOT_REPLY, "sync-prep-snapshot-reply", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_SYNC_UNUSED_CODE, "sync-unused", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_SYNC_FORCE_FOLLOWER, "sync-force-become-follower", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_SYNC_SET_ASSIGNED_LEADER, "sync-set-assigned-leader", NULL, NULL)
+  TD_CLOSE_MSG_SEG(TDMT_SYNC_MSG)
 
-  TD_NEW_MSG_SEG(TDMT_VND_STREAM_MSG)
+  TD_NEW_MSG_SEG(TDMT_VND_STREAM_MSG) //7 << 8
   TD_DEF_MSG_TYPE(TDMT_VND_STREAM_SCAN_HISTORY, "vnode-stream-scan-history", NULL, NULL)
-  TD_DEF_MSG_TYPE(TDMT_VND_STREAM_SCAN_HISTORY_FINISH, "vnode-stream-scan-history-finish", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_VND_STREAM_CHECK_POINT_SOURCE, "vnode-stream-checkpoint-source", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_VND_STREAM_TASK_UPDATE, "vnode-stream-update", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_VND_STREAM_TASK_RESET, "vnode-stream-reset", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_VND_STREAM_TASK_CHECK, "vnode-stream-task-check", NULL, NULL)
-  TD_DEF_MSG_TYPE(TDMT_VND_STREAM_MAX_MSG, "vnd-stream-max", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_VND_STREAM_UNUSED, "vnd-stream-unused", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_VND_GET_STREAM_PROGRESS, "vnd-stream-progress", NULL, NULL)
+  TD_CLOSE_MSG_SEG(TDMT_VND_STREAM_MSG)
 
-  TD_NEW_MSG_SEG(TDMT_VND_TMQ_MSG)
+  TD_NEW_MSG_SEG(TDMT_VND_TMQ_MSG)  //8 << 8
   TD_DEF_MSG_TYPE(TDMT_VND_TMQ_SUBSCRIBE, "vnode-tmq-subscribe", SMqRebVgReq, SMqRebVgRsp)
   TD_DEF_MSG_TYPE(TDMT_VND_TMQ_DELETE_SUB, "vnode-tmq-delete-sub", SMqVDeleteReq, SMqVDeleteRsp)
   TD_DEF_MSG_TYPE(TDMT_VND_TMQ_COMMIT_OFFSET, "vnode-tmq-commit-offset", STqOffset, STqOffset)
@@ -324,10 +404,19 @@ enum { // WARN: new msg should be appended to segment tail
   TD_DEF_MSG_TYPE(TDMT_VND_TMQ_CONSUME_PUSH, "vnode-tmq-consume-push", NULL, NULL)
   TD_DEF_MSG_TYPE(TDMT_VND_TMQ_VG_WALINFO, "vnode-tmq-vg-walinfo", SMqPollReq, SMqDataBlkRsp)
   TD_DEF_MSG_TYPE(TDMT_VND_TMQ_VG_COMMITTEDINFO, "vnode-tmq-committedinfo", NULL, NULL)
-  TD_DEF_MSG_TYPE(TDMT_VND_TMQ_MAX_MSG, "vnd-tmq-max", NULL, NULL)
+  TD_CLOSE_MSG_SEG(TDMT_VND_TMQ_MSG)
 
+  TD_NEW_MSG_SEG(TDMT_MND_ARB_MSG)  //9 << 8
+  TD_DEF_MSG_TYPE(TDMT_MND_ARB_HEARTBEAT_TIMER, "mnd-arb-hb-tmr", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_MND_ARB_CHECK_SYNC_TIMER, "mnd-arb-check-sync-tmr", NULL, NULL)
+  TD_DEF_MSG_TYPE(TDMT_MND_ARB_UPDATE_GROUP, "mnd-arb-update-group", NULL, NULL) // no longer used
+  TD_DEF_MSG_TYPE(TDMT_MND_ARB_UPDATE_GROUP_BATCH, "mnd-arb-update-group-batch", NULL, NULL)
+  TD_CLOSE_MSG_SEG(TDMT_MND_ARB_MSG)
 
-#if defined(TD_MSG_NUMBER_)
-  TDMT_MAX
-#endif
+  TD_NEW_MSG_SEG(TDMT_MAX_MSG)  // msg end mark
+  TD_CLOSE_MSG_SEG(TDMT_MAX_MSG)
+
+  #if defined(TD_MSG_NUMBER_)
+    TDMT_MAX
+  #endif
 };

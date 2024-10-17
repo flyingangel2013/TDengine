@@ -44,7 +44,8 @@ enum {
 // STFile
 int32_t tsdbTFileToJson(const STFile *f, cJSON *json);
 int32_t tsdbJsonToTFile(const cJSON *json, tsdb_ftype_t ftype, STFile *f);
-int32_t tsdbTFileName(STsdb *pTsdb, const STFile *f, char fname[]);
+void    tsdbTFileName(STsdb *pTsdb, const STFile *f, char fname[]);
+void    tsdbTFileLastChunkName(STsdb *pTsdb, const STFile *f, char fname[]);
 bool    tsdbIsSameTFile(const STFile *f1, const STFile *f2);
 bool    tsdbIsTFileChanged(const STFile *f1, const STFile *f2);
 
@@ -53,14 +54,18 @@ int32_t tsdbTFileObjInit(STsdb *pTsdb, const STFile *f, STFileObj **fobj);
 int32_t tsdbTFileObjRef(STFileObj *fobj);
 int32_t tsdbTFileObjUnref(STFileObj *fobj);
 int32_t tsdbTFileObjRemove(STFileObj *fobj);
+int32_t tsdbTFileObjRemoveUpdateLC(STFileObj *fobj);
 int32_t tsdbTFileObjCmpr(const STFileObj **fobj1, const STFileObj **fobj2);
 
 struct STFile {
   tsdb_ftype_t type;
   SDiskID      did;  // disk id
+  int32_t      lcn;  // last chunk number
   int32_t      fid;  // file id
   int64_t      cid;  // commit id
   int64_t      size;
+  int64_t      minVer;
+  int64_t      maxVer;
   union {
     struct {
       int32_t level;
@@ -73,6 +78,7 @@ struct STFileObj {
   STFile        f[1];
   int32_t       state;
   int32_t       ref;
+  int32_t       nlevel;
   char          fname[TSDB_FILENAME_LEN];
 };
 

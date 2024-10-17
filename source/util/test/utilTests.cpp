@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <tutil.h>
 #include <random>
+#include "ttime.h"
 
 #include "tarray.h"
 #include "tcompare.h"
@@ -76,6 +77,16 @@ TEST(utilTest, wchar_pattern_match_test) {
   const TdWchar* str12 = L"";
   ret = wcsPatternMatch(reinterpret_cast<const TdUcs4*>(pattern12), 4, reinterpret_cast<const TdUcs4*>(str12), 0, &pInfo);
   ASSERT_EQ(ret, TSDB_PATTERN_NOMATCH);
+
+  const TdWchar* pattern13 = L"%\\_6 ";
+  const TdWchar* str13 = L"6a6 ";
+  ret = wcsPatternMatch(reinterpret_cast<const TdUcs4*>(pattern13), 6, reinterpret_cast<const TdUcs4*>(str13), 4, &pInfo);
+  ASSERT_EQ(ret, TSDB_PATTERN_NOWILDCARDMATCH);
+
+  const TdWchar* pattern14 = L"%\\%6 ";
+  const TdWchar* str14 = L"6a6 ";
+  ret = wcsPatternMatch(reinterpret_cast<const TdUcs4*>(pattern14), 6, reinterpret_cast<const TdUcs4*>(str14), 4, &pInfo);
+  ASSERT_EQ(ret, TSDB_PATTERN_NOWILDCARDMATCH);
 }
 
 TEST(utilTest, wchar_pattern_match_no_terminated) {
@@ -126,14 +137,24 @@ TEST(utilTest, wchar_pattern_match_no_terminated) {
   ret = wcsPatternMatch(reinterpret_cast<const TdUcs4*>(pattern8), 8, reinterpret_cast<const TdUcs4*>(str8), 6, &pInfo);
   ASSERT_EQ(ret, TSDB_PATTERN_NOWILDCARDMATCH);
 
-  const TdWchar* pattern9 = L"6\\_6  ";
+  const TdWchar* pattern9 = L"6\\_6 ";
   const TdWchar* str9 = L"6_6 ";
-  ret = wcsPatternMatch(reinterpret_cast<const TdUcs4*>(pattern9), 4, reinterpret_cast<const TdUcs4*>(str9), 3, &pInfo);
+  ret = wcsPatternMatch(reinterpret_cast<const TdUcs4*>(pattern9), 6, reinterpret_cast<const TdUcs4*>(str9), 4, &pInfo);
   ASSERT_EQ(ret, TSDB_PATTERN_MATCH);
 
   const TdWchar* pattern10 = L"% ";
   const TdWchar* str10 = L"6_6 ";
-  ret = wcsPatternMatch(reinterpret_cast<const TdUcs4*>(pattern10), 1, reinterpret_cast<const TdUcs4*>(str10), 3, &pInfo);
+  ret = wcsPatternMatch(reinterpret_cast<const TdUcs4*>(pattern10), 2, reinterpret_cast<const TdUcs4*>(str10), 4, &pInfo);
+  ASSERT_EQ(ret, TSDB_PATTERN_MATCH);
+
+  const TdWchar* pattern11 = L"%\\_6 ";
+  const TdWchar* str11 = L"6_6 ";
+  ret = wcsPatternMatch(reinterpret_cast<const TdUcs4*>(pattern11), 6, reinterpret_cast<const TdUcs4*>(str11), 4, &pInfo);
+  ASSERT_EQ(ret, TSDB_PATTERN_MATCH);
+
+  const TdWchar* pattern12 = L"%\\%6 ";
+  const TdWchar* str12 = L"6%6 ";
+  ret = wcsPatternMatch(reinterpret_cast<const TdUcs4*>(pattern12), 6, reinterpret_cast<const TdUcs4*>(str12), 4, &pInfo);
   ASSERT_EQ(ret, TSDB_PATTERN_MATCH);
 }
 
@@ -204,6 +225,41 @@ TEST(utilTest, char_pattern_match_test) {
   const char* str12 = NULL;
   ret = patternMatch(pattern12, 4, str12, 0, &pInfo);
   ASSERT_EQ(ret, TSDB_PATTERN_NOMATCH);
+
+  const char* pattern13 = "a\\%c";
+  const char* str13 = "a%c";
+  ret = patternMatch(pattern13, 5, str13, strlen(str13), &pInfo);
+  ASSERT_EQ(ret, TSDB_PATTERN_MATCH);
+
+  const char* pattern14 = "%a\\%c";
+  const char* str14 = "a%c";
+  ret = patternMatch(pattern14, strlen(pattern14), str14, strlen(str14), &pInfo);
+  ASSERT_EQ(ret, TSDB_PATTERN_MATCH);
+
+  const char* pattern15 = "_a\\%c";
+  const char* str15 = "ba%c";
+  ret = patternMatch(pattern15, strlen(pattern15), str15, strlen(str15), &pInfo);
+  ASSERT_EQ(ret, TSDB_PATTERN_MATCH);
+
+  const char* pattern16 = "_\\%c";
+  const char* str16 = "a%c";
+  ret = patternMatch(pattern16, strlen(pattern16), str16, strlen(str16), &pInfo);
+  ASSERT_EQ(ret, TSDB_PATTERN_MATCH);
+
+  const char* pattern17 = "_\\%c";
+  const char* str17 = "ba%c";
+  ret = patternMatch(pattern17, strlen(pattern17), str17, strlen(str17), &pInfo);
+  ASSERT_EQ(ret, TSDB_PATTERN_NOMATCH);
+
+  const char* pattern18 = "%\\%c";
+  const char* str18 = "abc";
+  ret = patternMatch(pattern18, strlen(pattern18), str18, strlen(str18), &pInfo);
+  ASSERT_EQ(ret, TSDB_PATTERN_NOWILDCARDMATCH);
+
+  const char* pattern19 = "%\\_c";
+  const char* str19 = "abc";
+  ret = patternMatch(pattern19, strlen(pattern19), str19, strlen(str19), &pInfo);
+  ASSERT_EQ(ret, TSDB_PATTERN_NOWILDCARDMATCH);
 }
 
 TEST(utilTest, char_pattern_match_no_terminated) {
@@ -326,4 +382,95 @@ TEST(utilTest, intToHextStr) {
     sprintf(destBuf, "%" PRIx64, v);
     ASSERT_STREQ(buf, destBuf);
   }
+}
+static int64_t getIntervalValWithPrecision(int64_t interval, int8_t unit, int8_t precision) {
+  if (IS_CALENDAR_TIME_DURATION(unit)) {
+    return interval;
+  }
+  if(0 != getDuration(interval, unit, &interval, precision)) {
+    assert(0);
+  }
+  return interval;
+}
+
+static bool tsmaIntervalCheck(int64_t baseInterval, int8_t baseUnit, int64_t interval, int8_t unit, int8_t precision) {
+  auto ret = checkRecursiveTsmaInterval(getIntervalValWithPrecision(baseInterval, baseUnit, precision), baseUnit,
+                                        getIntervalValWithPrecision(interval, unit, precision), unit, precision, true);
+  using namespace std;
+  cout << interval << unit << " on " << baseInterval << baseUnit << ": " << ret << endl;
+  return ret;
+}
+
+TEST(tsma, reverse_unit) {
+  ASSERT_TRUE(tsmaIntervalCheck(1, 'm', 120, 's', TSDB_TIME_PRECISION_MILLI));
+  ASSERT_TRUE(tsmaIntervalCheck(1, 'h', 120, 'm', TSDB_TIME_PRECISION_MILLI));
+  ASSERT_TRUE(tsmaIntervalCheck(20, 's', 2 * 20 * 1000, 'a', TSDB_TIME_PRECISION_MILLI));
+  ASSERT_TRUE(tsmaIntervalCheck(20, 's', 2 * 20 * 1000 * 1000, 'u', TSDB_TIME_PRECISION_MILLI));
+  ASSERT_TRUE(tsmaIntervalCheck(20, 's', 2UL * 20UL * 1000UL * 1000UL * 1000UL, 'b', TSDB_TIME_PRECISION_MILLI));
+
+  ASSERT_FALSE(tsmaIntervalCheck(1, 'h', 60, 'm', TSDB_TIME_PRECISION_MILLI));
+  ASSERT_FALSE(tsmaIntervalCheck(1, 'h', 6, 'm', TSDB_TIME_PRECISION_MILLI));
+
+  ASSERT_FALSE(tsmaIntervalCheck(2, 'h', 120, 'm', TSDB_TIME_PRECISION_MILLI));
+  ASSERT_TRUE(tsmaIntervalCheck(2, 'h', 240, 'm', TSDB_TIME_PRECISION_MILLI));
+  ASSERT_FALSE(tsmaIntervalCheck(1, 'd', 240, 'm', TSDB_TIME_PRECISION_MILLI));
+
+  ASSERT_FALSE(tsmaIntervalCheck(1, 'd', 1440, 'm', TSDB_TIME_PRECISION_MILLI));
+  ASSERT_TRUE(tsmaIntervalCheck(1, 'd', 2880, 'm', TSDB_TIME_PRECISION_MILLI));
+
+  ASSERT_FALSE(tsmaIntervalCheck(1, 'y', 365, 'd', TSDB_TIME_PRECISION_MILLI));
+  ASSERT_FALSE(tsmaIntervalCheck(1, 'n', 30, 'd', TSDB_TIME_PRECISION_MILLI));
+
+  ASSERT_TRUE(tsmaIntervalCheck(1, 'y', 24, 'n', TSDB_TIME_PRECISION_MILLI));
+
+  ASSERT_FALSE(tsmaIntervalCheck(55, 's', 55, 'm', TSDB_TIME_PRECISION_MILLI));
+  ASSERT_TRUE(tsmaIntervalCheck(10, 's', 1, 'm', TSDB_TIME_PRECISION_MICRO));
+  ASSERT_TRUE(tsmaIntervalCheck(10, 's', 2, 'm', TSDB_TIME_PRECISION_MICRO));
+  ASSERT_TRUE(tsmaIntervalCheck(10, 's', 20, 'm', TSDB_TIME_PRECISION_MICRO));
+  ASSERT_TRUE(tsmaIntervalCheck(10, 's', 50, 'm', TSDB_TIME_PRECISION_MICRO));
+
+  ASSERT_TRUE(tsmaIntervalCheck(120, 's', 30, 'm', TSDB_TIME_PRECISION_MICRO));
+  ASSERT_TRUE(tsmaIntervalCheck(360, 's', 30, 'm', TSDB_TIME_PRECISION_MICRO));
+  ASSERT_TRUE(tsmaIntervalCheck(600, 's', 30, 'm', TSDB_TIME_PRECISION_MICRO));
+  ASSERT_FALSE(tsmaIntervalCheck(600, 's', 15, 'm', TSDB_TIME_PRECISION_MICRO));
+
+  ASSERT_TRUE(tsmaIntervalCheck(10, 's', 1, 'h', TSDB_TIME_PRECISION_MICRO));
+  ASSERT_TRUE(tsmaIntervalCheck(15, 's', 1, 'h', TSDB_TIME_PRECISION_MICRO));
+  ASSERT_FALSE(tsmaIntervalCheck(7*60, 's', 1, 'h', TSDB_TIME_PRECISION_MICRO));
+  ASSERT_TRUE(tsmaIntervalCheck(10, 's', 1, 'd', TSDB_TIME_PRECISION_MICRO));
+  ASSERT_TRUE(tsmaIntervalCheck(10, 's', 1, 'w', TSDB_TIME_PRECISION_MICRO));
+  ASSERT_TRUE(tsmaIntervalCheck(1, 'd', 1, 'w', TSDB_TIME_PRECISION_MICRO));
+  ASSERT_TRUE(tsmaIntervalCheck(10, 's', 1, 'n', TSDB_TIME_PRECISION_MICRO));
+  ASSERT_TRUE(tsmaIntervalCheck(10, 's', 1, 'y', TSDB_TIME_PRECISION_MICRO));
+
+  ASSERT_TRUE(tsmaIntervalCheck(1, 'd', 1, 'w', TSDB_TIME_PRECISION_MICRO));
+  ASSERT_TRUE(tsmaIntervalCheck(1, 'd', 1, 'n', TSDB_TIME_PRECISION_MICRO));
+  ASSERT_TRUE(tsmaIntervalCheck(1, 'd', 2, 'n', TSDB_TIME_PRECISION_MICRO));
+  ASSERT_FALSE(tsmaIntervalCheck(2, 'd', 2, 'n', TSDB_TIME_PRECISION_MICRO));
+  ASSERT_FALSE(tsmaIntervalCheck(2, 'd', 2, 'y', TSDB_TIME_PRECISION_MICRO));
+  ASSERT_FALSE(tsmaIntervalCheck(2, 'd', 1, 'y', TSDB_TIME_PRECISION_MICRO));
+
+  ASSERT_FALSE(tsmaIntervalCheck(1, 'w', 1, 'n', TSDB_TIME_PRECISION_NANO));
+  ASSERT_FALSE(tsmaIntervalCheck(4, 'w', 1, 'n', TSDB_TIME_PRECISION_NANO));
+  ASSERT_FALSE(tsmaIntervalCheck(1, 'w', 1, 'y', TSDB_TIME_PRECISION_NANO));
+
+  ASSERT_TRUE(tsmaIntervalCheck(1, 'n', 1, 'y', TSDB_TIME_PRECISION_NANO));
+  ASSERT_TRUE(tsmaIntervalCheck(2, 'n', 1, 'y', TSDB_TIME_PRECISION_NANO));
+  ASSERT_TRUE(tsmaIntervalCheck(3, 'n', 1, 'y', TSDB_TIME_PRECISION_NANO));
+  ASSERT_TRUE(tsmaIntervalCheck(4, 'n', 1, 'y', TSDB_TIME_PRECISION_NANO));
+  ASSERT_FALSE(tsmaIntervalCheck(5, 'n', 1, 'y', TSDB_TIME_PRECISION_NANO));
+  ASSERT_TRUE(tsmaIntervalCheck(6, 'n', 1, 'y', TSDB_TIME_PRECISION_NANO));
+  ASSERT_FALSE(tsmaIntervalCheck(7, 'n', 1, 'y', TSDB_TIME_PRECISION_NANO));
+  ASSERT_FALSE(tsmaIntervalCheck(8, 'n', 1, 'y', TSDB_TIME_PRECISION_NANO));
+  ASSERT_FALSE(tsmaIntervalCheck(9, 'n', 1, 'y', TSDB_TIME_PRECISION_NANO));
+  ASSERT_FALSE(tsmaIntervalCheck(10, 'n', 1, 'y', TSDB_TIME_PRECISION_NANO));
+  ASSERT_FALSE(tsmaIntervalCheck(11, 'n', 1, 'y', TSDB_TIME_PRECISION_NANO));
+
+  ASSERT_FALSE(tsmaIntervalCheck(1, 'w', 1, 'w', TSDB_TIME_PRECISION_NANO));
+  ASSERT_FALSE(tsmaIntervalCheck(120, 's', 2, 'm', TSDB_TIME_PRECISION_NANO));
+
+  ASSERT_FALSE(tsmaIntervalCheck(2, 'n', 2, 'n', TSDB_TIME_PRECISION_NANO));
+  ASSERT_FALSE(tsmaIntervalCheck(2, 'y', 2, 'y', TSDB_TIME_PRECISION_NANO));
+  ASSERT_FALSE(tsmaIntervalCheck(12, 'n', 1, 'y', TSDB_TIME_PRECISION_NANO));
+  ASSERT_TRUE(tsmaIntervalCheck(3, 'n', 1, 'y', TSDB_TIME_PRECISION_NANO));
 }

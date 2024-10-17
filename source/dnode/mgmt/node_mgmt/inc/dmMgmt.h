@@ -48,6 +48,8 @@ typedef struct {
 typedef struct {
   void        *serverRpc;
   void        *clientRpc;
+  void        *statusRpc;
+  void        *syncRpc;
   SDnodeHandle msgHandles[TDMT_MAX];
 } SDnodeTrans;
 
@@ -75,13 +77,13 @@ typedef struct SDnode {
   bool          stop;
   EDndRunStatus status;
   SStartupInfo  startup;
-  SDnodeTrans   trans;
+  SDnodeData    data;
   SUdfdData     udfdData;
   TdThreadMutex mutex;
   TdFilePtr     lockfile;
-  SDnodeData    data;
   STfs         *pTfs;
   SMgmtWrapper  wrappers[NODE_END];
+  SDnodeTrans   trans;
 } SDnode;
 
 // dmEnv.c
@@ -96,9 +98,9 @@ SMgmtWrapper *dmAcquireWrapper(SDnode *pDnode, EDndNodeType nType);
 int32_t       dmMarkWrapper(SMgmtWrapper *pWrapper);
 void          dmReleaseWrapper(SMgmtWrapper *pWrapper);
 int32_t       dmInitVars(SDnode *pDnode);
+int32_t       dmInitVarsWrapper(SDnode *pDnode);
 void          dmClearVars(SDnode *pDnode);
 int32_t       dmInitModule(SDnode *pDnode);
-bool          dmRequireNode(SDnode *pDnode, SMgmtWrapper *pWrapper);
 SMgmtInputOpt dmBuildMgmtInputOpt(SMgmtWrapper *pWrapper);
 void          dmSetStatus(SDnode *pDnode, EDndRunStatus stype);
 void          dmProcessServerStartupStatus(SDnode *pDnode, SRpcMsg *pMsg);
@@ -115,13 +117,19 @@ int32_t dmRunDnode(SDnode *pDnode);
 int32_t dmInitServer(SDnode *pDnode);
 void    dmCleanupServer(SDnode *pDnode);
 int32_t dmInitClient(SDnode *pDnode);
+int32_t dmInitStatusClient(SDnode *pDnode);
+int32_t dmInitSyncClient(SDnode *pDnode);
 void    dmCleanupClient(SDnode *pDnode);
+void    dmCleanupStatusClient(SDnode *pDnode);
+void    dmCleanupSyncClient(SDnode *pDnode);
 SMsgCb  dmGetMsgcb(SDnode *pDnode);
 int32_t dmInitMsgHandle(SDnode *pDnode);
 int32_t dmProcessNodeMsg(SMgmtWrapper *pWrapper, SRpcMsg *pMsg);
 
 // dmMonitor.c
 void dmSendMonitorReport();
+void dmMonitorCleanExpiredSamples();
+void dmSendAuditRecords();
 void dmGetVnodeLoads(SMonVloadInfo *pInfo);
 void dmGetVnodeLoadsLite(SMonVloadInfo *pInfo);
 void dmGetMnodeLoads(SMonMloadInfo *pInfo);

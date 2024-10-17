@@ -1,5 +1,9 @@
 # vnode
+add_subdirectory(src/tqCommon)
 add_library(vnode STATIC "")
+if(${TD_DARWIN})
+    target_compile_options(vnode PRIVATE -Wno-error=single-bit-bitfield-constant-conversion)
+endif(${TD_DARWIN})
 set(
   VNODE_SOURCE_FILES
   "src/vnd/vnodeOpen.c"
@@ -8,16 +12,16 @@ set(
   "src/vnd/vnodeCommit.c"
   "src/vnd/vnodeQuery.c"
   "src/vnd/vnodeModule.c"
-  "src/vnd/vnodeCos.c"
   "src/vnd/vnodeSvr.c"
   "src/vnd/vnodeSync.c"
   "src/vnd/vnodeSnapshot.c"
   "src/vnd/vnodeRetention.c"
   "src/vnd/vnodeInitApi.c"
+  "src/vnd/vnodeAsync.c"
+  "src/vnd/vnodeHash.c"
 
     # meta
     "src/meta/metaOpen.c"
-    "src/meta/metaIdx.c"
     "src/meta/metaTable.c"
     "src/meta/metaSma.c"
     "src/meta/metaQuery.c"
@@ -63,11 +67,8 @@ set(
     "src/tq/tqOffset.c"
     "src/tq/tqPush.c"
     "src/tq/tqSink.c"
-    "src/tq/tqCommit.c"
     "src/tq/tqStreamTask.c"
-    "src/tq/tqHandleSnapshot.c"
-    "src/tq/tqCheckInfoSnapshot.c"
-    "src/tq/tqOffsetSnapshot.c"
+    "src/tq/tqSnapshot.c"
     "src/tq/tqStreamStateSnap.c"
     "src/tq/tqStreamTaskSnap.c"
     
@@ -91,6 +92,7 @@ IF (TD_VNODE_PLUGINS)
     vnode
     PRIVATE
     ${TD_ENTERPRISE_DIR}/src/plugins/vnode/src/tsdbCompact.c
+    ${TD_ENTERPRISE_DIR}/src/plugins/vnode/src/tsdbCompactMonitor.c
     ${TD_ENTERPRISE_DIR}/src/plugins/vnode/src/vnodeCompact.c
   )
 ENDIF ()
@@ -118,6 +120,8 @@ if (${BUILD_CONTRIB})
         PUBLIC "inc"
         PUBLIC "src/inc"
         PUBLIC "${TD_SOURCE_DIR}/include/libs/scalar"
+        PUBLIC "${TD_SOURCE_DIR}/include/libs/crypt"
+        PUBLIC "${TD_SOURCE_DIR}/include/dnode/vnode"
         PUBLIC "${TD_SOURCE_DIR}/contrib/rocksdb/include"
     )
 else()
@@ -126,9 +130,11 @@ else()
         PUBLIC "inc"
         PUBLIC "src/inc"
         PUBLIC "${TD_SOURCE_DIR}/include/libs/scalar"
+        PUBLIC "${TD_SOURCE_DIR}/include/libs/crypt"
+        PUBLIC "${TD_SOURCE_DIR}/include/dnode/vnode"
     )
     if (${TD_LINUX})
-        target_include_directories(
+    target_include_directories(
             vnode 
             PUBLIC "${TD_SOURCE_DIR}/deps/${TD_DEPS_DIR}/rocksdb_static"
         )
@@ -138,6 +144,11 @@ else()
         )
     endif()
 endif()
+
+target_link_directories(
+    vnode 
+    PUBLIC "${CMAKE_BINARY_DIR}/build/lib"
+)
 
 target_link_libraries(
     vnode
@@ -152,53 +163,17 @@ target_link_libraries(
     PUBLIC scheduler
     PUBLIC tdb
     PUBLIC audit
+    PUBLIC crypt
 
     # PUBLIC bdb
     # PUBLIC scalar
+    #PUBLIC zstd
     PUBLIC rocksdb
     PUBLIC transport
     PUBLIC stream
     PUBLIC index
+    PUBLIC tqCommon
 )
-
-if(${TD_LINUX})
-set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
-find_library(APR_LIBRARY apr-1 PATHS /usr/local/apr/lib/)
-find_library(APR_UTIL_LIBRARY aprutil-1 PATHS /usr/local/apr/lib/)
-find_library(MINIXML_LIBRARY mxml)
-find_library(CURL_LIBRARY curl)
-target_link_libraries(
-    vnode
-
-    # s3
-    PUBLIC cos_c_sdk_static
-    PUBLIC ${APR_UTIL_LIBRARY}
-    PUBLIC ${APR_LIBRARY}
-    PUBLIC ${MINIXML_LIBRARY}
-    PUBLIC ${CURL_LIBRARY}
-)
-
-# s3
-FIND_PROGRAM(APR_CONFIG_BIN NAMES apr-config apr-1-config PATHS /usr/bin /usr/local/bin /usr/local/apr/bin/)
-IF (APR_CONFIG_BIN)
-  EXECUTE_PROCESS(
-    COMMAND ${APR_CONFIG_BIN} --includedir
-    OUTPUT_VARIABLE APR_INCLUDE_DIR
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-ENDIF()
-include_directories (${APR_INCLUDE_DIR})
-target_include_directories(
-  vnode
-  PUBLIC "${TD_SOURCE_DIR}/contrib/cos-c-sdk-v5/cos_c_sdk"
-  PUBLIC "$ENV{HOME}/.cos-local.1/include"
-  )
-
-if(${BUILD_WITH_COS})
-  add_definitions(-DUSE_COS)
-endif(${BUILD_WITH_COS})
-
-endif(${TD_LINUX})
 
 IF (TD_GRANT)
   TARGET_LINK_LIBRARIES(vnode PUBLIC grant)

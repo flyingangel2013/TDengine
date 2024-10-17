@@ -48,10 +48,20 @@ int32_t tmsgSendReq(const SEpSet* epSet, SRpcMsg* pMsg) {
   }
   return code;
 }
+int32_t tmsgSendSyncReq(const SEpSet* epSet, SRpcMsg* pMsg) {
+  int32_t code = (*defaultMsgCb.sendSyncReqFp)(epSet, pMsg);
+  if (code != 0) {
+    rpcFreeCont(pMsg->pCont);
+    pMsg->pCont = NULL;
+  }
+  return code;
+}
 
 void tmsgSendRsp(SRpcMsg* pMsg) {
 #if 1
-  rpcSendResponse(pMsg);
+  if (rpcSendResponse(pMsg) != 0) {
+    tError("failed to send response");
+  }
 #else
   return (*defaultMsgCb.sendRspFp)(pMsg);
 #endif
@@ -73,6 +83,6 @@ bool tmsgUpdateDnodeInfo(int32_t* dnodeId, int64_t* clusterId, char* fqdn, uint1
 
 void tmsgUpdateDnodeEpSet(SEpSet* epset) {
   for (int32_t i = 0; i < epset->numOfEps; ++i) {
-    tmsgUpdateDnodeInfo(NULL, NULL, epset->eps[i].fqdn, &epset->eps[i].port);
+    bool ret = tmsgUpdateDnodeInfo(NULL, NULL, epset->eps[i].fqdn, &epset->eps[i].port);
   }
 }

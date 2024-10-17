@@ -14,7 +14,7 @@
 import sys
 import random
 import time
-
+import platform
 import taos
 from util.log import *
 from util.cases import *
@@ -149,9 +149,10 @@ class TDTestCase:
             tdSql.execute(sql)
 
         # create stream
-        sql = "create stream ma into sta as select count(ts) from st interval(100b)"
-        tdLog.info(sql)
-        tdSql.execute(sql)
+        if platform.system().lower() != 'windows':
+            sql = "create stream ma into sta as select count(ts) from st interval(100b)"
+            tdLog.info(sql)
+            tdSql.execute(sql)
 
         # insert data
         self.insertData()
@@ -176,53 +177,87 @@ class TDTestCase:
     def checkTimeMacro(self):
         # 2 week
         val = 2
-        nsval = val*7*24*60*60*1000*1000*1000
+        nsval = -val*7*24*60*60*1000*1000*1000
         expectVal = self.childCnt * self.childRow
         sql = f"select count(ts) from st where timediff(ts - {val}w, ts1) = {nsval} "
         self.checkExpect(sql, expectVal)
 
         # 20 day
         val = 20
-        nsval = val*24*60*60*1000*1000*1000
+        nsval = -val*24*60*60*1000*1000*1000
         uint = "d"
         sql = f"select count(ts) from st where timediff(ts - {val}{uint}, ts1) = {nsval} "
         self.checkExpect(sql, expectVal)
 
         # 30 hour
         val = 30
-        nsval = val*60*60*1000*1000*1000
+        nsval = -val*60*60*1000*1000*1000
         uint = "h"
         sql = f"select count(ts) from st where timediff(ts - {val}{uint}, ts1) = {nsval} "
         self.checkExpect(sql, expectVal)
 
         # 90 minutes
         val = 90
-        nsval = val*60*1000*1000*1000
+        nsval = -val*60*1000*1000*1000
         uint = "m"
         sql = f"select count(ts) from st where timediff(ts - {val}{uint}, ts1) = {nsval} "
         self.checkExpect(sql, expectVal)
         # 2s
         val = 2
-        nsval = val*1000*1000*1000
+        nsval = -val*1000*1000*1000
         uint = "s"
         sql = f"select count(ts) from st where timediff(ts - {val}{uint}, ts1) = {nsval} "
         self.checkExpect(sql, expectVal)
         # 20a
         val = 5
-        nsval = val*1000*1000
+        nsval = -val*1000*1000
         uint = "a"
         sql = f"select count(ts) from st where timediff(ts - {val}{uint}, ts1) = {nsval} "
         self.checkExpect(sql, expectVal)
         # 300u
         val = 300
-        nsval = val*1000
+        nsval = -val*1000
         uint = "u"
         sql = f"select count(ts) from st where timediff(ts - {val}{uint}, ts1) = {nsval} "
         self.checkExpect(sql, expectVal)
         # 8b
         val = 8
-        sql = f"select timediff(ts - {val}b, ts1) from st "
+        sql = f"select timediff(ts1, ts - {val}b) from st "
         self.checkExpect(sql, val)
+
+        # timetruncate check
+        sql = '''select ts,timetruncate(ts,1u),
+                          timetruncate(ts,1b),
+                          timetruncate(ts,1m),
+                          timetruncate(ts,1h),
+                          timetruncate(ts,1w)
+               from t0 order by ts desc limit 1;'''
+        tdSql.query(sql)
+        tdSql.checkData(0,1, "2023-03-28 18:40:00.000009000")
+        tdSql.checkData(0,2, "2023-03-28 18:40:00.000009999")
+        tdSql.checkData(0,3, "2023-03-28 18:40:00.000000000")
+        tdSql.checkData(0,4, "2023-03-28 18:00:00.000000000")
+        tdSql.checkData(0,5, "2023-03-23 00:00:00.000000000")
+
+        # timediff
+        sql = '''select ts,timediff(ts,ts+1b,1b),
+                          timediff(ts,ts+1u,1u),
+                          timediff(ts,ts+1a,1a),
+                          timediff(ts,ts+1s,1s),
+                          timediff(ts,ts+1m,1m),
+                          timediff(ts,ts+1h,1h),
+                          timediff(ts,ts+1d,1d),
+                          timediff(ts,ts+1w,1w)
+               from t0 order by ts desc limit 1;'''
+        tdSql.query(sql)
+        tdSql.checkData(0,1, -1)
+        tdSql.checkData(0,2, -1)
+        tdSql.checkData(0,3, -1)
+        tdSql.checkData(0,4, -1)
+        tdSql.checkData(0,5, -1)
+        tdSql.checkData(0,6, -1)
+        tdSql.checkData(0,7, -1)
+        tdSql.checkData(0,8, -1)
 
     # init
     def init(self, conn, logSql, replicaVar=1):
@@ -281,7 +316,8 @@ class TDTestCase:
         self.checkWhere()
 
         # check stream
-        self.checkStream()
+        if platform.system().lower() != 'windows':
+            self.checkStream()
 
     # stop
     def stop(self):

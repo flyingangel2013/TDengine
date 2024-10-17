@@ -39,6 +39,8 @@ Compression=lzma
 SolidCompression=yes
 DisableDirPage=yes
 Uninstallable=yes
+ArchitecturesAllowed=x64
+ArchitecturesInstallIn64BitMode=x64
 
 [Languages]
 Name: "chinesesimp"; MessagesFile: "compiler:Default.isl"
@@ -53,6 +55,8 @@ Source: favicon.ico; DestDir: "{app}\include"; Flags: igNoreversion;
 Source: {#MyAppSourceDir}{#MyAppDLLName}; DestDir: "{win}\System32"; Flags: igNoreversion recursesubdirs createallsubdirs 64bit;Check:IsWin64;
 Source: {#MyAppSourceDir}{#MyAppCfgName}; DestDir: "{app}\cfg"; Flags: igNoreversion recursesubdirs createallsubdirs onlyifdoesntexist uninsneveruninstall
 Source: {#MyAppSourceDir}{#MyAppDriverName}; DestDir: "{app}\driver"; Flags: igNoreversion recursesubdirs createallsubdirs
+Source: {#MyAppSourceDir}\taos_odbc\*; DestDir: "{app}\taos_odbc"; Flags: igNoreversion recursesubdirs createallsubdirs
+Source: {#MyAppSourceDir}\*.dll; DestDir: "{app}"; Flags: igNoreversion recursesubdirs createallsubdirs
 ;Source: {#MyAppSourceDir}{#MyAppConnectorName}; DestDir: "{app}\connector"; Flags: igNoreversion recursesubdirs createallsubdirs
 ;Source: {#MyAppSourceDir}{#MyAppExamplesName}; DestDir: "{app}\examples"; Flags: igNoreversion recursesubdirs createallsubdirs
 Source: {#MyAppSourceDir}{#MyAppIncludeName}; DestDir: "{app}\include"; Flags: igNoreversion recursesubdirs createallsubdirs
@@ -66,6 +70,9 @@ Source: {#MyAppSourceDir}\taosdump.exe; DestDir: "{app}"; DestName: "{#CusPrompt
 [run]
 Filename: {sys}\sc.exe; Parameters: "create taosd start= DEMAND binPath= ""C:\\TDengine\\taosd.exe --win_service""" ; Flags: runhidden
 Filename: {sys}\sc.exe; Parameters: "create taosadapter start= DEMAND binPath= ""C:\\TDengine\\taosadapter.exe""" ; Flags: runhidden
+
+Filename: "C:\Windows\System32\odbcconf.exe"; Parameters: "/S /F win_odbc_install.ini"; WorkingDir: "{app}\taos_odbc\x64"; Flags: runhidden; StatusMsg: "Configuring ODBC x64"
+Filename: "C:\Windows\SysWOW64\odbcconf.exe"; Parameters: "/S /F win_odbc_install.ini"; WorkingDir: "{app}\taos_odbc\x86"; Flags: runhidden; StatusMsg: "Configuring ODBC x86"
 
 [UninstallRun]
 RunOnceId: "stoptaosd"; Filename: {sys}\sc.exe; Parameters: "stop taosd" ; Flags: runhidden
@@ -93,6 +100,37 @@ begin
   { look for the path with leading and trailing semicolon }
   { Pos() returns 0 if not found }
   Result := Pos(';' + Param + ';', ';' + OrigPath + ';') = 0;
+end;
+
+function DeleteOdbcDsnRegistry: Boolean;
+begin
+  RegDeleteKeyIncludingSubkeys(HKCU, 'SOFTWARE\ODBC\ODBC.INI\TAOS_ODBC_DSN');  
+  RegDeleteKeyIncludingSubkeys(HKCU, 'SOFTWARE\ODBC\ODBC.INI\TAOS_ODBC_WS_DSN')
+
+  RegDeleteValue(HKCU, 'SOFTWARE\ODBC\ODBC.INI\ODBC Data Sources', 'TAOS_ODBC_DSN'); 
+  RegDeleteValue(HKCU, 'SOFTWARE\ODBC\ODBC.INI\ODBC Data Sources', 'TAOS_ODBC_WS_DSN'); 
+
+  Result := True;
+end;
+
+function DeleteOdbcDriverRegistry: Boolean;
+begin
+  // Delete 64-bit ODBC driver registry 
+  RegDeleteKeyIncludingSubkeys(HKLM64, 'SOFTWARE\ODBC\ODBCINST.INI\TAOS_ODBC_DRIVER');    
+  RegDeleteValue(HKLM64, 'SOFTWARE\ODBC\ODBCINST.INI\ODBC Drivers', 'TAOS_ODBC_DRIVER');
+
+  // Delete 32-bit ODBC driver registry 
+  RegDeleteKeyIncludingSubkeys(HKLM64, 'SOFTWARE\Wow6432Node\ODBC\ODBCINST.INI\TAOS_ODBC_DRIVER');
+  RegDeleteValue(HKLM64, 'SOFTWARE\Wow6432Node\ODBC\ODBCINST.INI\ODBC Drivers', 'TAOS_ODBC_DRIVER');
+
+  Result := True;
+end;
+
+
+procedure DeinitializeUninstall();
+begin
+	DeleteOdbcDsnRegistry();
+	DeleteOdbcDriverRegistry();
 end;
 
 [UninstallDelete]

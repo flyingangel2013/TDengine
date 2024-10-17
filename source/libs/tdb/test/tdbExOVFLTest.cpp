@@ -141,7 +141,7 @@ static void generateBigVal(char *val, int valLen) {
 static TDB *openEnv(char const *envName, int const pageSize, int const pageNum) {
   TDB *pEnv = NULL;
 
-  int ret = tdbOpen(envName, pageSize, pageNum, &pEnv, 0);
+  int ret = tdbOpen(envName, pageSize, pageNum, &pEnv, 0, 0, NULL);
   if (ret) {
     pEnv = NULL;
   }
@@ -197,8 +197,7 @@ static void insertOfp(void) {
   tdbTbClose(pDb);
 
   // Close Env
-  ret = tdbClose(pEnv);
-  GTEST_ASSERT_EQ(ret, 0);
+  tdbClose(pEnv);
 }
 
 // TEST(TdbOVFLPagesTest, DISABLED_TbInsertTest) {
@@ -247,8 +246,7 @@ TEST(TdbOVFLPagesTest, TbGetTest) {
   tdbTbClose(pDb);
 
   // Close Env
-  ret = tdbClose(pEnv);
-  GTEST_ASSERT_EQ(ret, 0);
+  tdbClose(pEnv);
 }
 
 // TEST(TdbOVFLPagesTest, DISABLED_TbDeleteTest) {
@@ -357,8 +355,7 @@ tdbBegin(pEnv, &txn);
   tdbTbClose(pDb);
 
   // Close Env
-  ret = tdbClose(pEnv);
-  GTEST_ASSERT_EQ(ret, 0);
+  tdbClose(pEnv);
 }
 
 // TEST(tdb_test, DISABLED_simple_insert1) {
@@ -374,7 +371,7 @@ TEST(tdb_test, simple_insert1) {
   taosRemoveDir("tdb");
 
   // Open Env
-  ret = tdbOpen("tdb", pageSize, 64, &pEnv, 0);
+  ret = tdbOpen("tdb", pageSize, 64, &pEnv, 0, 0, NULL);
   GTEST_ASSERT_EQ(ret, 0);
 
   // Create a database
@@ -492,6 +489,5 @@ TEST(tdb_test, simple_insert1) {
   tdbTbClose(pDb);
 
   // Close Env
-  ret = tdbClose(pEnv);
-  GTEST_ASSERT_EQ(ret, 0);
+  tdbClose(pEnv);
 }

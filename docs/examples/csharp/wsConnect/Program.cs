@@ -1,28 +1,40 @@
 using System;
-using TDengineWS.Impl;
+using TDengine.Driver;
+using TDengine.Driver.Client;
 
 namespace Examples
 {
     public class WSConnExample
     {
-        static int Main(string[] args)
+        // ANCHOR: main
+        static void Main(string[] args)
         {
-            string DSN = "ws://root:taosdata@127.0.0.1:6041/test";
-            IntPtr wsConn = LibTaosWS.WSConnectWithDSN(DSN);
-  
-            if (wsConn == IntPtr.Zero)
+            var connectionString =
+                "protocol=WebSocket;host=localhost;port=6041;useSSL=false;username=root;password=taosdata";
+            try
             {
-                Console.WriteLine("get WS connection failed");
-                return -1;
+                // Connect to TDengine server using WebSocket
+                var builder = new ConnectionStringBuilder(connectionString);
+                // Open connection with using block, it will close the connection automatically
+                using (var client = DbDriver.Open(builder))
+                {
+                    Console.WriteLine("Connected to " + connectionString + " successfully.");
+                }
             }
-            else
+            catch (TDengineError e)
             {
-                Console.WriteLine("Establish connect success.");
-                // close connection.
-                LibTaosWS.WSClose(wsConn);
+                // handle TDengine error
+                Console.WriteLine("Failed to connect to " + connectionString + "; ErrCode:" + e.Code +
+                                  "; ErrMessage: " + e.Error);
+                throw;
             }
-
-            return 0;
+            catch (Exception e)
+            {
+                // handle other exceptions
+                Console.WriteLine("Failed to connect to " + connectionString + "; Err:" + e.Message);
+                throw;
+            }
         }
+        // ANCHOR_END: main
     }
 }

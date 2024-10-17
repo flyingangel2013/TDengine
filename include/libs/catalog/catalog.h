@@ -37,13 +37,16 @@ enum {
   CTG_DBG_DB_NUM = 1,
   CTG_DBG_META_NUM,
   CTG_DBG_STB_NUM,
+  CTG_DBG_VIEW_NUM,
   CTG_DBG_DB_RENT_NUM,
   CTG_DBG_STB_RENT_NUM,
+  CTG_DBG_VIEW_RENT_NUM,
 };
 
 typedef enum {
   AUTH_TYPE_READ = 1,
   AUTH_TYPE_WRITE,
+  AUTH_TYPE_ALTER,
   AUTH_TYPE_OTHER,
   AUTH_TYPE_READ_OR_WRITE,
 } AUTH_TYPE;
@@ -51,12 +54,19 @@ typedef enum {
 typedef struct SUserAuthInfo {
   char      user[TSDB_USER_LEN];
   SName     tbName;
+  bool      isView;
   AUTH_TYPE type;
 } SUserAuthInfo;
 
+typedef enum {
+  AUTH_RES_BASIC = 0,
+  AUTH_RES_VIEW,
+  AUTH_RES_MAX_VALUE
+} AUTH_RES_TYPE;
+
 typedef struct SUserAuthRes {
-  bool   pass;
-  SNode* pCond;
+  bool   pass[AUTH_RES_MAX_VALUE];
+  SNode* pCond[AUTH_RES_MAX_VALUE];
 } SUserAuthRes;
 
 typedef struct SDbInfo {
@@ -83,6 +93,10 @@ typedef struct SCatalogReq {
   SArray* pTableIndex;    // element is SNAME
   SArray* pTableCfg;      // element is SNAME
   SArray* pTableTag;      // element is SNAME
+  SArray* pView;          // element is STablesReq
+  SArray* pTableTSMAs;    // element is STablesReq
+  SArray* pTSMAs;         // element is STablesReq
+  SArray* pTableName;     // element is STablesReq
   bool    qNodeRequired;  // valid qnode
   bool    dNodeRequired;  // valid dnode
   bool    svrVerRequired;
@@ -96,6 +110,7 @@ typedef struct SMetaRes {
 } SMetaRes;
 
 typedef struct SMetaData {
+  bool      ctgFree;      // need to freed by catalog module
   SArray*   pDbVgroup;    // pRes = SArray<SVgroupInfo>*
   SArray*   pDbCfg;       // pRes = SDbCfgInfo*
   SArray*   pDbInfo;      // pRes = SDbInfo*
@@ -109,21 +124,28 @@ typedef struct SMetaData {
   SArray*   pTableCfg;    // pRes = STableCfg*
   SArray*   pTableTag;    // pRes = SArray<STagVal>*
   SArray*   pDnodeList;   // pRes = SArray<SEpSet>*
+  SArray*   pView;        // pRes = SViewMeta*
+  SArray*   pTableTsmas;  // pRes = SArray<STableTSMAInfo*>
+  SArray*   pTsmas;       // pRes = SArray<STableTSMAInfo*>
   SMetaRes* pSvrVer;      // pRes = char*
 } SMetaData;
 
 typedef struct SCatalogCfg {
   uint32_t maxTblCacheNum;
+  uint32_t maxViewCacheNum;
   uint32_t maxDBCacheNum;
   uint32_t maxUserCacheNum;
+  uint32_t maxTSMACacheNum;
   uint32_t dbRentSec;
   uint32_t stbRentSec;
+  uint32_t viewRentSec;
+  uint32_t tsmaRentSec;
 } SCatalogCfg;
 
 typedef struct SSTableVersion {
   char     dbFName[TSDB_DB_FNAME_LEN];
   char     stbName[TSDB_TABLE_NAME_LEN];
-  uint64_t dbId;
+  int64_t  dbId;
   uint64_t suid;
   int32_t  sversion;
   int32_t  tversion;
@@ -137,7 +159,30 @@ typedef struct SDbCacheInfo {
   int32_t cfgVersion;
   int32_t numOfTable;  // unit is TSDB_TABLE_NUM_UNIT
   int64_t stateTs;
+  int32_t tsmaVersion;
 } SDbCacheInfo;
+
+typedef struct SDynViewVersion {
+  int64_t  svrBootTs;
+  uint64_t dynViewVer;
+} SDynViewVersion;
+
+typedef struct SViewVersion {
+  char     dbFName[TSDB_DB_FNAME_LEN];
+  char     viewName[TSDB_VIEW_NAME_LEN];
+  int64_t  dbId;
+  uint64_t viewId;
+  int32_t  version;
+} SViewVersion;
+
+typedef struct STSMAVersion {
+  char     dbFName[TSDB_DB_FNAME_LEN];
+  char     tbName[TSDB_TABLE_NAME_LEN];
+  char     name[TSDB_TABLE_NAME_LEN];
+  uint64_t dbId;
+  uint64_t tsmaId;
+  int32_t  version;
+} STSMAVersion;
 
 typedef struct STbSVersion {
   char*   tbFName;
@@ -162,7 +207,7 @@ int32_t catalogInit(SCatalogCfg* cfg);
  * @param catalogHandle (output, NO need to free it)
  * @return error code
  */
-int32_t catalogGetHandle(uint64_t clusterId, SCatalog** catalogHandle);
+int32_t catalogGetHandle(int64_t clusterId, SCatalog** catalogHandle);
 
 int32_t catalogGetDBVgVersion(SCatalog* pCtg, const char* dbFName, int32_t* version, int64_t* dbId, int32_t* tableNum, int64_t* stateTs);
 
@@ -307,9 +352,13 @@ int32_t catalogGetDnodeList(SCatalog* pCatalog, SRequestConnInfo* pConn, SArray*
 
 int32_t catalogGetExpiredSTables(SCatalog* pCatalog, SSTableVersion** stables, uint32_t* num);
 
+int32_t catalogGetExpiredViews(SCatalog* pCtg, SViewVersion** views, uint32_t* num, SDynViewVersion** dynViewVersion);
+
 int32_t catalogGetExpiredDBs(SCatalog* pCatalog, SDbCacheInfo** dbs, uint32_t* num);
 
 int32_t catalogGetExpiredUsers(SCatalog* pCtg, SUserAuthVersion** users, uint32_t* num);
+
+int32_t catalogGetExpiredTsmas(SCatalog* pCtg, STSMAVersion** tsmas, uint32_t* num);
 
 int32_t catalogGetDBCfg(SCatalog* pCtg, SRequestConnInfo* pConn, const char* dbFName, SDbCfgInfo* pDbCfg);
 
@@ -327,7 +376,7 @@ int32_t catalogGetUdfInfo(SCatalog* pCtg, SRequestConnInfo* pConn, const char* f
 
 int32_t catalogChkAuth(SCatalog* pCtg, SRequestConnInfo* pConn, SUserAuthInfo *pAuth, SUserAuthRes* pRes);
 
-int32_t catalogChkAuthFromCache(SCatalog* pCtg, SUserAuthInfo *pAuth,        SUserAuthRes* pRes, bool* exists);
+int32_t catalogChkAuthFromCache(SCatalog* pCtg, SUserAuthInfo *pAuth, SUserAuthRes* pRes, bool* exists);
 
 int32_t catalogUpdateUserAuthInfo(SCatalog* pCtg, SGetUserAuthRsp* pAuth);
 
@@ -343,9 +392,33 @@ SMetaData* catalogCloneMetaData(SMetaData* pData);
 
 void catalogFreeMetaData(SMetaData* pData);
 
+int32_t catalogRemoveViewMeta(SCatalog* pCtg, const char* dbFName, uint64_t dbId, const char* viewName, uint64_t viewId);
+
+int32_t catalogUpdateDynViewVer(SCatalog* pCtg, SDynViewVersion* pVer);
+
+int32_t catalogUpdateViewMeta(SCatalog* pCtg, SViewMetaRsp* pMsg);
+
+int32_t catalogAsyncUpdateViewMeta(SCatalog* pCtg, SViewMetaRsp* pMsg);
+
+int32_t catalogGetViewMeta(SCatalog* pCtg, SRequestConnInfo* pConn, const SName* pViewName, STableMeta** pTableMeta);
+
 int32_t ctgdEnableDebug(char* option, bool enable);
 
 int32_t ctgdHandleDbgCommand(char* command);
+
+int32_t catalogAsyncUpdateTSMA(SCatalog* pCtg, STableTSMAInfo** pTsma, int32_t tsmaVersion);
+
+int32_t catalogUpdateTSMA(SCatalog* pCtg, STableTSMAInfo** ppTsma);
+
+int32_t catalogRemoveTSMA(SCatalog* pCtg, const STableTSMAInfo* pTsma);
+
+int32_t catalogGetTableTsmas(SCatalog* pCtg, SRequestConnInfo* pConn, const SName* pTableName, SArray** pRes);
+
+int32_t catalogGetTsma(SCatalog* pCtg, SRequestConnInfo* pConn, const SName* pTsmaName, STableTSMAInfo** pTsma);
+
+int32_t catalogAsyncUpdateDbTsmaVersion(SCatalog* pCtg, int32_t tsmaVersion, const char* dbFName, int64_t dbId);
+
+int32_t ctgHashValueComp(void const* lp, void const* rp);
 
 /**
  * Destroy catalog and relase all resources

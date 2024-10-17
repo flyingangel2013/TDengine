@@ -92,19 +92,16 @@ else
       ${build_dir}/bin/tdengine-datasource.zip.md5"
   fi
 
-  [ -f ${build_dir}/bin/taosx ] && taosx_bin="${build_dir}/bin/taosx"
-  explorer_bin_files=$(find ${build_dir}/bin/ -name '*-explorer')
 
   bin_files="${build_dir}/bin/${serverName} \
       ${build_dir}/bin/${clientName} \
       ${taostools_bin_files} \
-      ${taosx_bin} \
-      ${explorer_bin_files} \
       ${build_dir}/bin/${clientName}adapter \
       ${build_dir}/bin/udfd \
       ${script_dir}/remove.sh \
       ${script_dir}/set_core.sh \
       ${script_dir}/startPre.sh \
+      ${script_dir}/quick_deploy.sh \
       ${script_dir}/taosd-dump-cfg.gdb"
 fi
 
@@ -235,12 +232,8 @@ fi
 
 if [ "$verMode" == "cluster" ]; then
   sed 's/verMode=edge/verMode=cluster/g' ${install_dir}/bin/remove.sh >>remove_temp.sh
-  sed -i "s/serverName2=\"taosd\"/serverName2=\"${serverName2}\"/g" remove_temp.sh
-  sed -i "s/clientName2=\"taos\"/clientName2=\"${clientName2}\"/g" remove_temp.sh
-  sed -i "s/configFile2=\"taos.cfg\"/configFile2=\"${clientName2}.cfg\"/g" remove_temp.sh
-  sed -i "s/productName2=\"TDengine\"/productName2=\"${productName2}\"/g" remove_temp.sh
-  cusDomain=`echo "${cusEmail2}" | sed 's/^[^@]*@//'`
-  sed -i "s/emailName2=\"taosdata.com\"/emailName2=\"${cusDomain}\"/g" remove_temp.sh
+  sed -i "s/PREFIX=\"taos\"/PREFIX=\"${clientName2}\"/g" remove_temp.sh  
+  sed -i "s/productName=\"TDengine\"/productName=\"${productName2}\"/g" remove_temp.sh  
   mv remove_temp.sh ${install_dir}/bin/remove.sh
 fi
 if [ "$verMode" == "cloud" ]; then
@@ -266,12 +259,10 @@ cp ${install_files} ${install_dir}
 cp ${install_dir}/install.sh install_temp.sh
 if [ "$verMode" == "cluster" ]; then
   sed -i 's/verMode=edge/verMode=cluster/g' install_temp.sh
-  sed -i "s/serverName2=\"taosd\"/serverName2=\"${serverName2}\"/g" install_temp.sh
-  sed -i "s/clientName2=\"taos\"/clientName2=\"${clientName2}\"/g" install_temp.sh
-  sed -i "s/configFile2=\"taos.cfg\"/configFile2=\"${clientName2}.cfg\"/g" install_temp.sh
-  sed -i "s/productName2=\"TDengine\"/productName2=\"${productName2}\"/g" install_temp.sh
+  sed -i "s/PREFIX=\"taos\"/PREFIX=\"${clientName2}\"/g" install_temp.sh
+  sed -i "s/productName=\"TDengine\"/productName=\"${productName2}\"/g" install_temp.sh
   cusDomain=`echo "${cusEmail2}" | sed 's/^[^@]*@//'`
-  sed -i "s/emailName2=\"taosdata.com\"/emailName2=\"${cusDomain}\"/g" install_temp.sh
+  sed -i "s/emailName=\"taosdata.com\"/emailName=\"${cusDomain}\"/g" install_temp.sh
   mv install_temp.sh ${install_dir}/install.sh
 fi
 if [ "$verMode" == "cloud" ]; then
@@ -293,34 +284,35 @@ if [[ $dbName == "taos" ]]; then
   # Copy example code  
   mkdir -p ${install_dir}/examples
   examples_dir="${top_dir}/examples"
+  new_example_dir="${top_dir}/docs/examples"
   cp -r ${examples_dir}/c ${install_dir}/examples
   if [[ "$pagMode" != "lite" ]] && [[ "$cpuType" != "aarch32" ]]; then
-    if [ -d ${examples_dir}/JDBC/connectionPools/target ]; then
-      rm -rf ${examples_dir}/JDBC/connectionPools/target
+    if [ -d ${new_example_dir}/JDBC/connectionPools/target ]; then
+      rm -rf ${new_example_dir}/JDBC/connectionPools/target
     fi
-    if [ -d ${examples_dir}/JDBC/JDBCDemo/target ]; then
-      rm -rf ${examples_dir}/JDBC/JDBCDemo/target
+    if [ -d ${new_example_dir}/JDBC/JDBCDemo/target ]; then
+      rm -rf ${new_example_dir}/JDBC/JDBCDemo/target
     fi
-    if [ -d ${examples_dir}/JDBC/mybatisplus-demo/target ]; then
-      rm -rf ${examples_dir}/JDBC/mybatisplus-demo/target
+    if [ -d ${new_example_dir}/JDBC/mybatisplus-demo/target ]; then
+      rm -rf ${new_example_dir}/JDBC/mybatisplus-demo/target
     fi
-    if [ -d ${examples_dir}/JDBC/springbootdemo/target ]; then
-      rm -rf ${examples_dir}/JDBC/springbootdemo/target
+    if [ -d ${new_example_dir}/JDBC/springbootdemo/target ]; then
+      rm -rf ${new_example_dir}/JDBC/springbootdemo/target
     fi
-    if [ -d ${examples_dir}/JDBC/SpringJdbcTemplate/target ]; then
-      rm -rf ${examples_dir}/JDBC/SpringJdbcTemplate/target
+    if [ -d ${new_example_dir}/JDBC/SpringJdbcTemplate/target ]; then
+      rm -rf ${new_example_dir}/JDBC/SpringJdbcTemplate/target
     fi
-    if [ -d ${examples_dir}/JDBC/taosdemo/target ]; then
-      rm -rf ${examples_dir}/JDBC/taosdemo/target
+    if [ -d ${new_example_dir}/JDBC/taosdemo/target ]; then
+      rm -rf ${new_example_dir}/JDBC/taosdemo/target
     fi
 
-    cp -r ${examples_dir}/JDBC ${install_dir}/examples
-    cp -r ${examples_dir}/matlab ${install_dir}/examples
-    cp -r ${examples_dir}/python ${install_dir}/examples
-    cp -r ${examples_dir}/R ${install_dir}/examples
-    cp -r ${examples_dir}/go ${install_dir}/examples
-    cp -r ${examples_dir}/nodejs ${install_dir}/examples
-    cp -r ${examples_dir}/C# ${install_dir}/examples
+    cp -r ${new_example_dir}/JDBC ${install_dir}/examples ||:
+    cp -r ${examples_dir}/matlab ${install_dir}/examples ||:
+    cp -r ${examples_dir}/python ${install_dir}/examples ||:
+    cp -r ${examples_dir}/R ${install_dir}/examples ||:
+    cp -r ${examples_dir}/go ${install_dir}/examples ||:
+    cp -r ${examples_dir}/nodejs ${install_dir}/examples ||:
+    cp -r ${examples_dir}/C# ${install_dir}/examples ||:
     mkdir -p ${install_dir}/examples/taosbenchmark-json && cp ${examples_dir}/../tools/taos-tools/example/* ${install_dir}/examples/taosbenchmark-json
   fi
 
@@ -371,13 +363,9 @@ if [ "$verMode" == "cluster" ]; then
 
         # copy taosx
         if [ -d ${top_dir}/../enterprise/src/plugins/taosx/release/taosx ]; then
-          cp -r ${top_dir}/../enterprise/src/plugins/taosx/release/taosx ${install_dir}
-          cp ${top_dir}/../enterprise/packaging/install_taosx.sh ${install_dir}/taosx
-          cp ${top_dir}/../enterprise/src/plugins/taosx/packaging/uninstall.sh ${install_dir}/taosx
-          sed -i 's/target=\"\"/target=\"taosx\"/g' ${install_dir}/taosx/uninstall.sh
-        else
-          echo "taox package not found"
-          exit 1
+          cp -r ${top_dir}/../enterprise/src/plugins/taosx/release/taosx ${install_dir}          
+          cp ${top_dir}/../enterprise/src/plugins/taosx/packaging/uninstall.sh ${install_dir}/taosx/uninstall_taosx.sh
+          sed -i "s/uninstall.sh/uninstall_taosx.sh/g" ${install_dir}/taosx/uninstall_taosx.sh
         fi
     fi
 fi

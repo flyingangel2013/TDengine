@@ -32,6 +32,8 @@ typedef struct SPlanContext {
   bool        streamQuery;
   bool        rSmaQuery;
   bool        showRewrite;
+  bool        isView;
+  bool        isAudit;
   int8_t      triggerType;
   int64_t     watermark;
   int64_t     deleteMark;
@@ -42,6 +44,8 @@ typedef struct SPlanContext {
   const char* pUser;
   bool        sysInfo;
   int64_t     allocatorId;
+  bool        destHasPrimaryKey;
+  bool        sourceHasPrimaryKey;
 } SPlanContext;
 
 // Create the physical plan for the query, according to the AST.

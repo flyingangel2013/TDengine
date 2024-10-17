@@ -77,7 +77,7 @@ class TDTestCase:
             )
         query_condition.extend(
             (
-                1010,
+                1010.1,
                 ''' "test1234!@#$%^&*():'><?/.,][}{" ''',
                 "null"
             )
@@ -399,6 +399,9 @@ class TDTestCase:
         tdSql.query(f"explain analyze ratio {ratio} verbose false select {INT_COL} from {dbname}.stb1 where {INT_COL} is not null and {INT_COL} in (0, 1, 2) or {INT_COL} between 2 and 100 ")
 
         self.explain_check()
+
+        # coverage explain.c add
+        tdSql.query(f"explain verbose true select * from {dbname}.stb1 partition by c1 order by c2")
 
     def __test_error(self, dbname=DBNAME):
         

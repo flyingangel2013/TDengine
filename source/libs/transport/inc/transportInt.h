@@ -58,11 +58,14 @@ typedef struct {
   int32_t failFastThreshold;
   int32_t failFastInterval;
 
+  int8_t notWaitAvaliableConn;  // 1: no delay, 0: delay
+
   void (*cfp)(void* parent, SRpcMsg*, SEpSet*);
   bool (*retry)(int32_t code, tmsg_t msgType);
   bool (*startTimer)(int32_t code, tmsg_t msgType);
   void (*destroyFp)(void* ahandle);
   bool (*failFastFp)(tmsg_t msgType);
+  bool (*noDelayFp)(tmsg_t msgType);
 
   int32_t       connLimitNum;
   int8_t        connLimitLock;  // 0: no lock. 1. lock

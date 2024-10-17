@@ -26,20 +26,22 @@ extern "C" {
 #endif
 
 typedef struct SVnodeMgmt {
-  SDnodeData      *pData;
-  SMsgCb           msgCb;
-  const char      *path;
-  const char      *name;
-  SQWorkerPool     queryPool;
-  SAutoQWorkerPool streamPool;
-  SWWorkerPool     fetchPool;
-  SSingleWorker    mgmtWorker;
-  SHashObj        *hash;
-  TdThreadRwlock   lock;
-  SVnodesStat      state;
-  STfs            *pTfs;
-  TdThread         thread;
-  bool             stop;
+  SDnodeData           *pData;
+  SMsgCb                msgCb;
+  const char           *path;
+  const char           *name;
+  SQueryAutoQWorkerPool queryPool;
+  SAutoQWorkerPool      streamPool;
+  SWWorkerPool          fetchPool;
+  SSingleWorker         mgmtWorker;
+  SSingleWorker         mgmtMultiWorker;
+  SHashObj             *hash;
+  TdThreadRwlock        lock;
+  SVnodesStat           state;
+  STfs                 *pTfs;
+  TdThread              thread;
+  bool                  stop;
+  TdThreadMutex         createLock;
 } SVnodeMgmt;
 
 typedef struct {
@@ -52,22 +54,24 @@ typedef struct {
 } SWrapperCfg;
 
 typedef struct {
-  int32_t       vgId;
-  int32_t       vgVersion;
-  int32_t       refCount;
-  int8_t        dropped;
-  int8_t        disable;
-  int32_t       diskPrimary;
-  int32_t       toVgId;
-  char         *path;
-  SVnode       *pImpl;
-  SMultiWorker  pWriteW;
-  SMultiWorker  pSyncW;
-  SMultiWorker  pSyncRdW;
-  SMultiWorker  pApplyW;
-  STaosQueue   *pQueryQ;
-  STaosQueue   *pStreamQ;
-  STaosQueue   *pFetchQ;
+  int32_t      vgId;
+  int32_t      vgVersion;
+  int32_t      refCount;
+  int8_t       dropped;
+  int8_t       failed;
+  int8_t       disable;
+  int32_t      diskPrimary;
+  int32_t      toVgId;
+  char        *path;
+  SVnode      *pImpl;
+  SMultiWorker pWriteW;
+  SMultiWorker pSyncW;
+  SMultiWorker pSyncRdW;
+  SMultiWorker pApplyW;
+  STaosQueue  *pQueryQ;
+  STaosQueue  *pStreamQ;
+  STaosQueue  *pFetchQ;
+  STaosQueue  *pMultiMgmQ;
 } SVnodeObj;
 
 typedef struct {
@@ -83,8 +87,10 @@ typedef struct {
 } SVnodeThread;
 
 // vmInt.c
+int32_t    vmGetPrimaryDisk(SVnodeMgmt *pMgmt, int32_t vgId);
 int32_t    vmAllocPrimaryDisk(SVnodeMgmt *pMgmt, int32_t vgId);
 SVnodeObj *vmAcquireVnode(SVnodeMgmt *pMgmt, int32_t vgId);
+SVnodeObj *vmAcquireVnodeImpl(SVnodeMgmt *pMgmt, int32_t vgId, bool strict);
 void       vmReleaseVnode(SVnodeMgmt *pMgmt, SVnodeObj *pVnode);
 int32_t    vmOpenVnode(SVnodeMgmt *pMgmt, SWrapperCfg *pCfg, SVnode *pImpl);
 void       vmCloseVnode(SVnodeMgmt *pMgmt, SVnodeObj *pVnode, bool commitAndRemoveWal);
@@ -98,11 +104,12 @@ int32_t vmProcessDisableVnodeWriteReq(SVnodeMgmt *pMgmt, SRpcMsg *pMsg);
 int32_t vmProcessAlterHashRangeReq(SVnodeMgmt *pMgmt, SRpcMsg *pMsg);
 int32_t vmProcessAlterVnodeTypeReq(SVnodeMgmt *pMgmt, SRpcMsg *pMsg);
 int32_t vmProcessCheckLearnCatchupReq(SVnodeMgmt *pMgmt, SRpcMsg *pMsg);
+int32_t vmProcessArbHeartBeatReq(SVnodeMgmt *pMgmt, SRpcMsg *pMsg);
 
 // vmFile.c
-int32_t     vmGetVnodeListFromFile(SVnodeMgmt *pMgmt, SWrapperCfg **ppCfgs, int32_t *numOfVnodes);
-int32_t     vmWriteVnodeListToFile(SVnodeMgmt *pMgmt);
-SVnodeObj **vmGetVnodeListFromHash(SVnodeMgmt *pMgmt, int32_t *numOfVnodes);
+int32_t vmGetVnodeListFromFile(SVnodeMgmt *pMgmt, SWrapperCfg **ppCfgs, int32_t *numOfVnodes);
+int32_t vmWriteVnodeListToFile(SVnodeMgmt *pMgmt);
+int32_t vmGetVnodeListFromHash(SVnodeMgmt *pMgmt, int32_t *numOfVnodes, SVnodeObj ***ppVnodes);
 
 // vmWorker.c
 int32_t vmStartWorker(SVnodeMgmt *pMgmt);
@@ -121,6 +128,7 @@ int32_t vmPutMsgToFetchQueue(SVnodeMgmt *pMgmt, SRpcMsg *pMsg);
 int32_t vmPutMsgToStreamQueue(SVnodeMgmt *pMgmt, SRpcMsg *pMsg);
 int32_t vmPutMsgToMergeQueue(SVnodeMgmt *pMgmt, SRpcMsg *pMsg);
 int32_t vmPutMsgToMgmtQueue(SVnodeMgmt *pMgmt, SRpcMsg *pMsg);
+int32_t vmPutMsgToMultiMgmtQueue(SVnodeMgmt *pMgmt, SRpcMsg *pMsg);
 
 #ifdef __cplusplus
 }

@@ -3,8 +3,6 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 16
 VisualStudioVersion = 16.0.30114.105
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "asyncquery", "asyncQuery\asyncquery.csproj", "{E2A5F00C-14E7-40E1-A2DE-6AB2975616D3}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "connect", "connect\connect.csproj", "{CCC5042D-93FC-4AE0-B2F6-7E692FD476B7}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "influxdbline", "influxdbLine\influxdbline.csproj", "{6A24FB80-1E3C-4E2D-A5AB-914FA583874D}"
@@ -29,6 +27,12 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "wsStmt", "wsStmt\wsStmt.csp
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "sqlinsert", "sqlInsert\sqlinsert.csproj", "{CD24BD12-8550-4627-A11D-707B446F48C3}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "nativesml", "nativesml\nativesml.csproj", "{18ADDBE8-B266-4A66-8CC5-CFF80B530EFD}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "wssml", "wssml\wssml.csproj", "{C3E62FDB-CCBC-4F72-ACF6-D3B2C39630E3}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "wssubscribe", "wssubscribe\wssubscribe.csproj", "{CB4BCBA5-C758-433F-8B90-7389F59E46BD}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -38,10 +42,6 @@ Global
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{E2A5F00C-14E7-40E1-A2DE-6AB2975616D3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{E2A5F00C-14E7-40E1-A2DE-6AB2975616D3}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{E2A5F00C-14E7-40E1-A2DE-6AB2975616D3}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{E2A5F00C-14E7-40E1-A2DE-6AB2975616D3}.Release|Any CPU.Build.0 = Release|Any CPU
 		{CCC5042D-93FC-4AE0-B2F6-7E692FD476B7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{CCC5042D-93FC-4AE0-B2F6-7E692FD476B7}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{CCC5042D-93FC-4AE0-B2F6-7E692FD476B7}.Release|Any CPU.ActiveCfg = Release|Any CPU
@@ -90,5 +90,17 @@ Global
 		{CD24BD12-8550-4627-A11D-707B446F48C3}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{CD24BD12-8550-4627-A11D-707B446F48C3}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{CD24BD12-8550-4627-A11D-707B446F48C3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{18ADDBE8-B266-4A66-8CC5-CFF80B530EFD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{18ADDBE8-B266-4A66-8CC5-CFF80B530EFD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{18ADDBE8-B266-4A66-8CC5-CFF80B530EFD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{18ADDBE8-B266-4A66-8CC5-CFF80B530EFD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C3E62FDB-CCBC-4F72-ACF6-D3B2C39630E3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C3E62FDB-CCBC-4F72-ACF6-D3B2C39630E3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C3E62FDB-CCBC-4F72-ACF6-D3B2C39630E3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C3E62FDB-CCBC-4F72-ACF6-D3B2C39630E3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{CB4BCBA5-C758-433F-8B90-7389F59E46BD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CB4BCBA5-C758-433F-8B90-7389F59E46BD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CB4BCBA5-C758-433F-8B90-7389F59E46BD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CB4BCBA5-C758-433F-8B90-7389F59E46BD}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

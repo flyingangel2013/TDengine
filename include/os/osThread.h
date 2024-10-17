@@ -22,8 +22,12 @@
 extern "C" {
 #endif
 
-#if defined(WINDOWS) && !defined(__USE_PTHREAD)
+#ifdef WINDOWS
+#include <tlhelp32.h>
 #include <windows.h>
+#endif
+
+#if defined(WINDOWS) && !defined(__USE_PTHREAD)
 #define __USE_WIN_THREAD
 // https://learn.microsoft.com/en-us/windows/win32/winprog/using-the-windows-headers
 // #ifndef _WIN32_WINNT
@@ -69,6 +73,19 @@ typedef pthread_key_t        TdThreadKey;
 
 #define taosThreadCleanupPush pthread_cleanup_push
 #define taosThreadCleanupPop  pthread_cleanup_pop
+#if !defined(WINDOWS)
+#if defined(_TD_DARWIN_64)  // MACOS
+#define taosThreadRwlockAttrSetKindNP(A, B) ((void)0)
+#else  // LINUX
+#if _XOPEN_SOURCE >= 500 || _POSIX_C_SOURCE >= 200809L
+#define taosThreadRwlockAttrSetKindNP(A, B) pthread_rwlockattr_setkind_np(A, B)
+#else
+#define taosThreadRwlockAttrSetKindNP(A, B) ((void)0)
+#endif
+#endif
+#else  // WINDOWS
+#define taosThreadRwlockAttrSetKindNP(A, B) ((void)0)
+#endif
 
 #if defined(WINDOWS) && !defined(__USE_PTHREAD)
 #define TD_PTHREAD_MUTEX_INITIALIZER PTHREAD_MUTEX_INITIALIZER_FORBID
@@ -209,6 +226,7 @@ int32_t taosThreadCondTimedWait(TdThreadCond *cond, TdThreadMutex *mutex, const 
 int32_t taosThreadCondAttrDestroy(TdThreadCondAttr *attr);
 int32_t taosThreadCondAttrGetPshared(const TdThreadCondAttr *attr, int32_t *pshared);
 int32_t taosThreadCondAttrInit(TdThreadCondAttr *attr);
+int32_t taosThreadCondAttrSetclock(TdThreadCondAttr *attr, int clockId);
 int32_t taosThreadCondAttrSetPshared(TdThreadCondAttr *attr, int32_t pshared);
 int32_t taosThreadDetach(TdThread thread);
 int32_t taosThreadEqual(TdThread t1, TdThread t2);
@@ -260,6 +278,10 @@ int32_t  taosThreadSpinTrylock(TdThreadSpinlock *lock);
 int32_t  taosThreadSpinUnlock(TdThreadSpinlock *lock);
 void     taosThreadTestCancel(void);
 void     taosThreadClear(TdThread *thread);
+
+#ifdef WINDOWS
+bool taosThreadIsMain();
+#endif
 
 #ifdef __cplusplus
 }

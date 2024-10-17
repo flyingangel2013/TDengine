@@ -27,7 +27,7 @@ class TDTestCase:
     def init(self, conn, logSql, replicaVar=1):
         self.replicaVar = int(replicaVar)
         tdLog.debug(f"start to excute {__file__}")
-        tdSql.init(conn.cursor(), False)
+        tdSql.init(conn.cursor(), True)
 
     def create_database(self,tsql, dbName,dropFlag=1,vgroups=2,replica=1, duration:str='1d'):
         if dropFlag == 1:
@@ -210,7 +210,7 @@ class TDTestCase:
         #self.check_explain_res_has_row('SortMerge', explain_res)
         #self.check_explain_res_has_row("blocking=0", explain_res)
         explain_res = self.explain_sql(sql_hint)
-        self.check_explain_res_has_row('SortMerge', explain_res)
+        self.check_explain_res_has_row('Merge', explain_res)
         self.check_explain_res_has_row('blocking=0', explain_res)
 
     def test_pipelined_agg_plan_with_slimit(self):

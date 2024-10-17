@@ -62,7 +62,6 @@ int32_t shellCountPrefixOnes(uint8_t c) {
 }
 
 void shellGetPrevCharSize(const char *str, int32_t pos, int32_t *size, int32_t *width) {
-  ASSERT(pos > 0);
   if (pos <= 0) return;
 
   TdWchar wc;
@@ -82,7 +81,6 @@ void shellGetPrevCharSize(const char *str, int32_t pos, int32_t *size, int32_t *
 }
 
 void shellGetNextCharSize(const char *str, int32_t pos, int32_t *size, int32_t *width) {
-  ASSERT(pos >= 0);
   if(pos < 0) return;
 
   TdWchar wc;
@@ -91,7 +89,6 @@ void shellGetNextCharSize(const char *str, int32_t pos, int32_t *size, int32_t *
 }
 
 void shellInsertChar(SShellCmd *cmd, char *c, int32_t size) {
-  ASSERT(cmd->cursorOffset <= cmd->commandSize && cmd->endOffset >= cmd->screenOffset);
   if(cmd->cursorOffset > cmd->commandSize || cmd->endOffset < cmd->screenOffset) return;
 
   TdWchar wc;
@@ -138,7 +135,6 @@ void shellInsertStr(SShellCmd *cmd, char *str, int32_t size) {
 }
 
 void shellBackspaceChar(SShellCmd *cmd) {
-  ASSERT(cmd->cursorOffset <= cmd->commandSize && cmd->endOffset >= cmd->screenOffset);
   if(cmd->cursorOffset > cmd->commandSize || cmd->endOffset < cmd->screenOffset) return;
 
   if (cmd->cursorOffset > 0) {
@@ -159,7 +155,6 @@ void shellBackspaceChar(SShellCmd *cmd) {
 }
 
 void shellClearLineBefore(SShellCmd *cmd) {
-  ASSERT(cmd->cursorOffset <= cmd->commandSize && cmd->endOffset >= cmd->screenOffset);
   if(cmd->cursorOffset > cmd->commandSize || cmd->endOffset < cmd->screenOffset) return;
 
   shellClearScreen(cmd->endOffset + PSIZE, cmd->screenOffset + PSIZE);
@@ -174,7 +169,6 @@ void shellClearLineBefore(SShellCmd *cmd) {
 }
 
 void shellClearLineAfter(SShellCmd *cmd) {
-  ASSERT(cmd->cursorOffset <= cmd->commandSize && cmd->endOffset >= cmd->screenOffset);
   if(cmd->cursorOffset > cmd->commandSize || cmd->endOffset < cmd->screenOffset) return;
 
   shellClearScreen(cmd->endOffset + PSIZE, cmd->screenOffset + PSIZE);
@@ -184,7 +178,6 @@ void shellClearLineAfter(SShellCmd *cmd) {
 }
 
 void shellDeleteChar(SShellCmd *cmd) {
-  ASSERT(cmd->cursorOffset <= cmd->commandSize && cmd->endOffset >= cmd->screenOffset);
   if(cmd->cursorOffset > cmd->commandSize || cmd->endOffset < cmd->screenOffset) return;
 
   if (cmd->cursorOffset < cmd->commandSize) {
@@ -203,7 +196,6 @@ void shellDeleteChar(SShellCmd *cmd) {
 }
 
 void shellMoveCursorLeft(SShellCmd *cmd) {
-  ASSERT(cmd->cursorOffset <= cmd->commandSize && cmd->endOffset >= cmd->screenOffset);
   if(cmd->cursorOffset > cmd->commandSize || cmd->endOffset < cmd->screenOffset) return;
 
   if (cmd->cursorOffset > 0) {
@@ -218,7 +210,6 @@ void shellMoveCursorLeft(SShellCmd *cmd) {
 }
 
 void shellMoveCursorRight(SShellCmd *cmd) {
-  ASSERT(cmd->cursorOffset <= cmd->commandSize && cmd->endOffset >= cmd->screenOffset);
   if(cmd->cursorOffset > cmd->commandSize || cmd->endOffset < cmd->screenOffset) return;
 
   if (cmd->cursorOffset < cmd->commandSize) {
@@ -233,7 +224,6 @@ void shellMoveCursorRight(SShellCmd *cmd) {
 }
 
 void shellPositionCursorHome(SShellCmd *cmd) {
-  ASSERT(cmd->cursorOffset <= cmd->commandSize && cmd->endOffset >= cmd->screenOffset);
   if(cmd->cursorOffset > cmd->commandSize || cmd->endOffset < cmd->screenOffset) return;
 
   if (cmd->cursorOffset > 0) {
@@ -254,7 +244,6 @@ void positionCursorMiddle(SShellCmd *cmd) {
 }
 
 void shellPositionCursorEnd(SShellCmd *cmd) {
-  ASSERT(cmd->cursorOffset <= cmd->commandSize && cmd->endOffset >= cmd->screenOffset);
   if(cmd->cursorOffset > cmd->commandSize || cmd->endOffset < cmd->screenOffset) return;
 
   if (cmd->cursorOffset < cmd->commandSize) {
@@ -290,7 +279,6 @@ void shellPositionCursor(int32_t step, int32_t direction) {
 }
 
 void shellUpdateBuffer(SShellCmd *cmd) {
-  ASSERT(cmd->cursorOffset <= cmd->commandSize && cmd->endOffset >= cmd->screenOffset);
   if(cmd->cursorOffset > cmd->commandSize || cmd->endOffset < cmd->screenOffset) return;
 
   if (shellRegexMatch(cmd->buffer, "(\\s+$)|(^$)", REG_EXTENDED)) strcat(cmd->command, " ");
@@ -306,7 +294,6 @@ void shellUpdateBuffer(SShellCmd *cmd) {
 }
 
 bool shellIsReadyGo(SShellCmd *cmd) {
-  ASSERT(cmd->cursorOffset <= cmd->commandSize && cmd->endOffset >= cmd->screenOffset);
   if(cmd->cursorOffset > cmd->commandSize || cmd->endOffset < cmd->screenOffset) return false;
 
   char *total = (char *)taosMemoryCalloc(1, SHELL_MAX_COMMAND_SIZE);
@@ -334,7 +321,6 @@ void shellGetMbSizeInfo(const char *str, int32_t *size, int32_t *width) {
 }
 
 void shellResetCommand(SShellCmd *cmd, const char s[]) {
-  ASSERT(cmd->cursorOffset <= cmd->commandSize && cmd->endOffset >= cmd->screenOffset);
   if(cmd->cursorOffset > cmd->commandSize || cmd->endOffset < cmd->screenOffset) return;
 
   shellClearScreen(cmd->endOffset + PSIZE, cmd->screenOffset + PSIZE);
@@ -459,7 +445,7 @@ char taosGetConsoleChar() {
   static char mbStr[5];
   static unsigned long bufLen = 0;
   static uint16_t bufIndex = 0, mbStrIndex = 0, mbStrLen = 0;
-  CONSOLE_READCONSOLE_CONTROL inputControl={ sizeof(CONSOLE_READCONSOLE_CONTROL), 0, 1<<TAB_KEY, 0 };
+  CONSOLE_READCONSOLE_CONTROL inputControl={ sizeof(CONSOLE_READCONSOLE_CONTROL), 0, 0, 0 };
   while (bufLen == 0) {
     ReadConsoleW(console, buf, SHELL_INPUT_MAX_COMMAND_SIZE, &bufLen, &inputControl);
     if (bufLen > 0 && buf[0] == 0) bufLen = 0;
@@ -502,6 +488,8 @@ int32_t shellReadCommand(char *command) {
     c = taosGetConsoleChar();
 
     if (c == (char)EOF) {
+      taosMemoryFreeClear(cmd.buffer);
+      taosMemoryFreeClear(cmd.command);
       return c;
     }
 
@@ -514,13 +502,11 @@ int32_t shellReadCommand(char *command) {
       }
       shellInsertChar(&cmd, utf8_array, count);
       pressOtherKey(c);
-#ifndef WINDOWS
     } else if (c == TAB_KEY) {
       // press TAB key
       pressTabKey(&cmd);
-#endif
     } else if (c < '\033') {
-      pressOtherKey(c);      
+      pressOtherKey(c);
       // Ctrl keys.  TODO: Implement ctrl combinations
       switch (c) {
         case 0:
@@ -540,6 +526,8 @@ int32_t shellReadCommand(char *command) {
         case 4:  // EOF or Ctrl+D
           taosResetTerminalMode();
           printf("\r\n");
+          taosMemoryFreeClear(cmd.buffer);
+          taosMemoryFreeClear(cmd.command);
           return -1;
         case 5:  // ctrl E
           shellPositionCursorEnd(&cmd);

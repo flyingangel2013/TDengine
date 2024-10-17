@@ -366,9 +366,9 @@ TEST_F(ParserSelectTest, semanticCheck) {
   run("SELECT t1.c1, t1.cc1 FROM t1", TSDB_CODE_PAR_INVALID_COLUMN);
 
   // TSDB_CODE_PAR_GET_META_ERROR
-  run("SELECT * FROM t10", TSDB_CODE_PAR_GET_META_ERROR);
+  run("SELECT * FROM t10", TSDB_CODE_PAR_TABLE_NOT_EXIST);
 
-  run("SELECT * FROM test.t10", TSDB_CODE_PAR_GET_META_ERROR);
+  run("SELECT * FROM test.t10", TSDB_CODE_PAR_TABLE_NOT_EXIST);
 
   // TSDB_CODE_PAR_TABLE_NOT_EXIST
   run("SELECT t2.c1 FROM t1", TSDB_CODE_PAR_TABLE_NOT_EXIST);
@@ -381,9 +381,9 @@ TEST_F(ParserSelectTest, semanticCheck) {
   // TSDB_CODE_PAR_WRONG_VALUE_TYPE
   run("SELECT timestamp '2010a' FROM t1", TSDB_CODE_PAR_WRONG_VALUE_TYPE);
 
-  run("SELECT LAST(*) + SUM(c1) FROM t1", TSDB_CODE_PAR_WRONG_VALUE_TYPE);
+  run("SELECT LAST(*) + SUM(c1) FROM t1", TSDB_CODE_PAR_NOT_SUPPORT_MULTI_RESULT);
 
-  run("SELECT CEIL(LAST(ts, c1)) FROM t1", TSDB_CODE_PAR_WRONG_VALUE_TYPE);
+  run("SELECT CEIL(LAST(ts, c1)) FROM t1", TSDB_CODE_FUNC_FUNTION_PARA_NUM);
 
   // TSDB_CODE_PAR_ILLEGAL_USE_AGG_FUNCTION
   run("SELECT c2 FROM t1 tt1 join t1 tt2 on COUNT(*) > 0", TSDB_CODE_PAR_ILLEGAL_USE_AGG_FUNCTION);
@@ -412,6 +412,28 @@ TEST_F(ParserSelectTest, semanticCheck) {
   run("SELECT COUNT(*) FROM t1 order by c1", TSDB_CODE_PAR_NOT_SINGLE_GROUP);
 
   run("SELECT c1 FROM t1 order by COUNT(*)", TSDB_CODE_PAR_NOT_SINGLE_GROUP);
+
+  run("SELECT COUNT(*) FROM t1 order by COUNT(*)");
+
+  run("SELECT COUNT(*) FROM t1 order by last(c2)");
+
+  run("SELECT c1 FROM t1 order by last(ts)");
+
+  run("SELECT ts FROM t1 order by last(ts)");
+
+  run("SELECT c2 FROM t1 order by last(ts)");
+
+  run("SELECT * FROM t1 order by last(ts)");
+
+  run("SELECT last(ts) FROM t1 order by last(ts)");
+
+  run("SELECT last(ts), ts, c1 FROM t1 order by last(ts)");
+
+  run("SELECT ts, last(ts) FROM t1 order by last(ts)");
+
+  run("SELECT first(ts), c2 FROM t1 order by last(c1)", TSDB_CODE_PAR_NOT_SINGLE_GROUP);
+
+  run("SELECT c1 FROM t1 order by concat(c2, 'abc')");
 
   // TSDB_CODE_PAR_NOT_SELECTED_EXPRESSION
   run("SELECT distinct c1, c2 FROM t1 WHERE c1 > 0 order by ts", TSDB_CODE_PAR_NOT_SELECTED_EXPRESSION);
@@ -442,7 +464,7 @@ TEST_F(ParserSelectTest, setOperator) {
 TEST_F(ParserSelectTest, setOperatorSemanticCheck) {
   useDb("root", "test");
 
-  run("SELECT c1, c2 FROM t1 UNION ALL SELECT c1, c2 FROM t1 ORDER BY ts", TSDB_CODE_PAR_INVALID_COLUMN);
+  run("SELECT c1, c2 FROM t1 UNION ALL SELECT c1, c2 FROM t1 ORDER BY ts", TSDB_CODE_PAR_ORDERBY_UNKNOWN_EXPR);
 }
 
 TEST_F(ParserSelectTest, informationSchema) {

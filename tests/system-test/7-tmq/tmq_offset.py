@@ -5,7 +5,7 @@ import time
 import socket
 import os
 import threading
-
+import platform
 from util.log import *
 from util.sql import *
 from util.cases import *
@@ -15,29 +15,50 @@ sys.path.append("./7-tmq")
 from tmqCommon import *
 
 class TDTestCase:
+    clientCfgDict = {'debugFlag': 135}
+    updatecfgDict = {'debugFlag': 135, 'asynclog': 0}
+    updatecfgDict["clientCfg"] = clientCfgDict
+
     def init(self, conn, logSql, replicaVar=1):
         self.replicaVar = int(replicaVar)
         tdLog.debug(f"start to excute {__file__}")
         tdSql.init(conn.cursor())
 
     def run(self):
-        tdSql.prepare()
-        buildPath = tdCom.getBuildPath()
-        cmdStr1 = '%s/build/bin/taosBenchmark -i 50 -B 1 -t 1000 -n 100000 -y &'%(buildPath)
-        tdLog.info(cmdStr1)
-        os.system(cmdStr1)
-        time.sleep(15)
 
-        cmdStr2 = '%s/build/bin/tmq_offset_test &'%(buildPath)
-        tdLog.info(cmdStr2)
-        os.system(cmdStr2)
+        if platform.system().lower() == 'windows':
+            buildPath = tdCom.getBuildPath()
+            cmdStr1 = ' mintty -h never %s/build/bin/taosBenchmark -i 50 -B 1 -t 1000 -n 100000 -y '%(buildPath)
+            tdLog.info(cmdStr1)
+            os.system(cmdStr1)
+            time.sleep(15)
 
-        time.sleep(20)
+            cmdStr2 = ' mintty -h never %s/build/bin/tmq_offset_test '%(buildPath)
+            tdLog.info(cmdStr2)
+            os.system(cmdStr2)
+            time.sleep(20)
 
-        os.system("kill -9 `pgrep taosBenchmark`")
-        result = os.system("kill -9 `pgrep tmq_offset_test`")
-        if result != 0:
-            tdLog.exit("tmq_offset_test error!")
+            # tdLog.info("ps -a | grep taos | awk \'{print $2}\' | xargs kill -9")
+            os.system('ps -a | grep taosBenchmark | awk \'{print $2}\' | xargs kill -9')
+            result = os.system('ps -a | grep tmq_offset_test | awk \'{print $2}\' | xargs kill -9')
+            if result != 0:
+                tdLog.exit("tmq_offset_test error!")
+        else:
+            buildPath = tdCom.getBuildPath()
+            cmdStr1 = '%s/build/bin/taosBenchmark -i 50 -B 1 -t 1000 -n 100000 -y &'%(buildPath)
+            tdLog.info(cmdStr1)
+            os.system(cmdStr1)
+            time.sleep(15)
+
+            cmdStr2 = '%s/build/bin/tmq_offset_test &'%(buildPath)
+            tdLog.info(cmdStr2)
+            os.system(cmdStr2)
+            time.sleep(20)
+
+            os.system("kill -9 `pgrep taosBenchmark`")
+            result = os.system("kill -9 `pgrep tmq_offset_test`")
+            if result != 0:
+                tdLog.exit("tmq_offset_test error!")
 
     def stop(self):
         tdSql.close()

@@ -17,13 +17,13 @@
 #define _TD_COMMON_MSG_CB_H_
 
 #include "os.h"
+#include "tmsg.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 typedef struct SRpcMsg        SRpcMsg;
-typedef struct SEpSet         SEpSet;
 typedef struct SMgmtWrapper   SMgmtWrapper;
 typedef struct SRpcHandleInfo SRpcHandleInfo;
 
@@ -36,15 +36,17 @@ typedef enum {
   SYNC_QUEUE,
   SYNC_RD_QUEUE,
   STREAM_QUEUE,
+  ARB_QUEUE,
   QUEUE_MAX,
 } EQueueType;
 
+typedef void (*GetDnodeEp)(void* pData, int32_t dnodeId, char* pEp, char* pFqdn, uint16_t* pPort);
 typedef bool (*UpdateDnodeInfoFp)(void* pData, int32_t* dnodeId, int64_t* clusterId, char* fqdn, uint16_t* port);
 typedef int32_t (*PutToQueueFp)(void* pMgmt, EQueueType qtype, SRpcMsg* pMsg);
 typedef int32_t (*GetQueueSizeFp)(void* pMgmt, int32_t vgId, EQueueType qtype);
 typedef int32_t (*SendReqFp)(const SEpSet* pEpSet, SRpcMsg* pMsg);
 typedef void (*SendRspFp)(SRpcMsg* pMsg);
-typedef void (*RegisterBrokenLinkArgFp)(SRpcMsg* pMsg);
+typedef void (*RegisterBrokenLinkArgFp)(struct SRpcMsg* pMsg);
 typedef void (*ReleaseHandleFp)(SRpcHandleInfo* pHandle, int8_t type);
 typedef void (*ReportStartup)(const char* name, const char* desc);
 
@@ -53,20 +55,25 @@ typedef struct {
   void*                   mgmt;
   void*                   clientRpc;
   void*                   serverRpc;
+  void*                   statusRpc;
+  void*                   syncRpc;
   PutToQueueFp            putToQueueFp;
   GetQueueSizeFp          qsizeFp;
   SendReqFp               sendReqFp;
+  SendReqFp               sendSyncReqFp;
   SendRspFp               sendRspFp;
   RegisterBrokenLinkArgFp registerBrokenLinkArgFp;
   ReleaseHandleFp         releaseHandleFp;
   ReportStartup           reportStartupFp;
   UpdateDnodeInfoFp       updateDnodeInfoFp;
+  GetDnodeEp              getDnodeEpFp;
 } SMsgCb;
 
 void    tmsgSetDefault(const SMsgCb* msgcb);
 int32_t tmsgPutToQueue(const SMsgCb* msgcb, EQueueType qtype, SRpcMsg* pMsg);
 int32_t tmsgGetQueueSize(const SMsgCb* msgcb, int32_t vgId, EQueueType qtype);
 int32_t tmsgSendReq(const SEpSet* epSet, SRpcMsg* pMsg);
+int32_t tmsgSendSyncReq(const SEpSet* epSet, SRpcMsg* pMsg);
 void    tmsgSendRsp(SRpcMsg* pMsg);
 void    tmsgRegisterBrokenLinkArg(SRpcMsg* pMsg);
 void    tmsgReleaseHandle(SRpcHandleInfo* pHandle, int8_t type);

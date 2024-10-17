@@ -37,9 +37,6 @@
 // This magic number is the number of 100 nanosecond intervals since January 1, 1601 (UTC)
 // until 00:00:00 January 1, 1970
 static const uint64_t TIMEEPOCH = ((uint64_t)116444736000000000ULL);
-// This magic number is the number of 100 nanosecond intervals since January 1, 1601 (UTC)
-// until 00:00:00 January 1, 1900
-static const uint64_t TIMEEPOCH1900 = ((uint64_t)116445024000000000ULL);
 
 /*
  * We do not implement alternate representations. However, we always
@@ -348,6 +345,7 @@ char *taosStrpTime(const char *buf, const char *fmt, struct tm *tm) {
 }
 
 int32_t taosGetTimeOfDay(struct timeval *tv) {
+  int32_t code = 0;
 #ifdef WINDOWS
   LARGE_INTEGER t;
   FILETIME      f;
@@ -360,12 +358,20 @@ int32_t taosGetTimeOfDay(struct timeval *tv) {
   t.QuadPart -= TIMEEPOCH;
   tv->tv_sec = t.QuadPart / 10000000;
   tv->tv_usec = (t.QuadPart % 10000000) / 10;
+  return 0;
 #else
-  return gettimeofday(tv, NULL);
+  code = gettimeofday(tv, NULL);
+  return (-1 == code) ? (terrno = TAOS_SYSTEM_ERROR(errno)) : 0;
 #endif
 }
 
-time_t taosTime(time_t *t) { return time(t); }
+time_t taosTime(time_t *t) { 
+  time_t r = time(t); 
+  if (r == (time_t)-1) {
+    terrno = TAOS_SYSTEM_ERROR(errno);
+  }
+  return r;
+}
 
 /*
  * mktime64 - Converts date to seconds.
@@ -460,7 +466,11 @@ time_t taosMktime(struct tm *timep) {
                        timep->tm_sec, tz);
 #endif
 #else
-  return mktime(timep);
+  time_t r = mktime(timep);
+  if (r == (time_t)-1) {
+    terrno = TAOS_SYSTEM_ERROR(errno);
+  }
+  return r;
 #endif
 }
 
@@ -472,31 +482,40 @@ struct tm *taosLocalTime(const time_t *timep, struct tm *result, char *buf) {
   if (result == NULL) {
     res = localtime(timep);
     if (res == NULL && buf != NULL) {
-      sprintf(buf, "NaN");
+      (void)sprintf(buf, "NaN");
     }
     return res;
   }
 #ifdef WINDOWS
-  if (*timep < 0) {
-    if (*timep < -2208988800LL) {
-      if (buf != NULL) {
-        sprintf(buf, "NaN");
-      }
-      return NULL;
+  if (*timep < -2208988800LL) {
+    if (buf != NULL) {
+      sprintf(buf, "NaN");
     }
+    return NULL;
+  } else if (*timep < 0) {
+    SYSTEMTIME ss, s;
+    FILETIME   ff, f;
 
-    SYSTEMTIME    s;
-    FILETIME      f;
     LARGE_INTEGER offset;
     struct tm     tm1;
     time_t        tt = 0;
-    if (localtime_s(&tm1, &tt) != 0 ) {
+    if (localtime_s(&tm1, &tt) != 0) {
       if (buf != NULL) {
         sprintf(buf, "NaN");
       }
       return NULL;
     }
-    offset.QuadPart = TIMEEPOCH1900;
+    ss.wYear = tm1.tm_year + 1900;
+    ss.wMonth = tm1.tm_mon + 1;
+    ss.wDay = tm1.tm_mday;
+    ss.wHour = tm1.tm_hour;
+    ss.wMinute = tm1.tm_min;
+    ss.wSecond = tm1.tm_sec;
+    ss.wMilliseconds = 0;
+    SystemTimeToFileTime(&ss, &ff);
+    offset.QuadPart = ff.dwHighDateTime;
+    offset.QuadPart <<= 32;
+    offset.QuadPart |= ff.dwLowDateTime;
     offset.QuadPart += *timep * 10000000;
     f.dwLowDateTime = offset.QuadPart & 0xffffffff;
     f.dwHighDateTime = (offset.QuadPart >> 32) & 0xffffffff;
@@ -521,7 +540,7 @@ struct tm *taosLocalTime(const time_t *timep, struct tm *result, char *buf) {
 #else
   res = localtime_r(timep, result);
   if (res == NULL && buf != NULL) {
-    sprintf(buf, "NaN");
+    (void)sprintf(buf, "NaN");
   }
 #endif
   return result;
@@ -635,6 +654,7 @@ struct tm *taosLocalTimeNolock(struct tm *result, const time_t *timep, int dst) 
 int32_t taosGetTimestampSec() { return (int32_t)time(NULL); }
 
 int32_t taosClockGetTime(int clock_id, struct timespec *pTS) {
+  int32_t code = 0;
 #ifdef WINDOWS
   LARGE_INTEGER        t;
   FILETIME             f;
@@ -649,6 +669,7 @@ int32_t taosClockGetTime(int clock_id, struct timespec *pTS) {
   pTS->tv_nsec = (t.QuadPart % 10000000) * 100;
   return (0);
 #else
-  return clock_gettime(clock_id, pTS);
+  code = clock_gettime(clock_id, pTS);
+  return (-1 == code) ? (terrno = TAOS_SYSTEM_ERROR(errno)) : 0;
 #endif
 }

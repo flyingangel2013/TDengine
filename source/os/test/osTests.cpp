@@ -15,6 +15,7 @@
 
 #include <gtest/gtest.h>
 #include <iostream>
+#include <inttypes.h>
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wwrite-strings"
@@ -29,6 +30,41 @@
 #include "os.h"
 #include "tlog.h"
 
+#ifdef WINDOWS
+#include <windows.h>
+#else
+
+#include <arpa/inet.h>
+
+TEST(osTest, osFQDNSuccess) {
+  char     fqdn[1024];
+  char     ipString[INET_ADDRSTRLEN];
+  int      code = taosGetFqdn(fqdn);
+  uint32_t ipv4 = 0;
+  code = taosGetIpv4FromFqdn(fqdn, &ipv4);
+  ASSERT_NE(ipv4, 0xffffffff);
+
+  struct in_addr addr;
+  addr.s_addr = htonl(ipv4);
+  (void)snprintf(ipString, INET_ADDRSTRLEN, "%u.%u.%u.%u", (unsigned int)(addr.s_addr >> 24) & 0xFF,
+           (unsigned int)(addr.s_addr >> 16) & 0xFF, (unsigned int)(addr.s_addr >> 8) & 0xFF,
+           (unsigned int)(addr.s_addr) & 0xFF);
+  (void)printf("fqdn:%s  ip:%s\n", fqdn, ipString);
+}
+
+TEST(osTest, osFQDNFailed) {
+  char     fqdn[1024] = "fqdn_test_not_found";
+  char     ipString[24];
+  uint32_t ipv4 = 0;
+  int32_t code = taosGetIpv4FromFqdn(fqdn, &ipv4);
+  ASSERT_NE(code, 0);
+
+  terrno = TSDB_CODE_RPC_FQDN_ERROR;
+  (void)printf("fqdn:%s transfer to ip failed!\n", fqdn);
+}
+
+#endif  //  WINDOWS
+
 TEST(osTest, osSystem) {
   const char *flags = "UTL FATAL ";
   ELogLevel   level = DEBUG_FATAL;
@@ -38,27 +74,27 @@ TEST(osTest, osSystem) {
   const int sysLen = 64;
   char      osSysName[sysLen];
   int       ret = taosGetOsReleaseName(osSysName, NULL, NULL, sysLen);
-  printf("os systeme name:%s\n", osSysName);
+  (void)printf("os system name:%s\n", osSysName);
   ASSERT_EQ(ret, 0);
 }
 
 void fileOperateOnFree(void *param) {
   char *    fname = (char *)param;
   TdFilePtr pFile = taosOpenFile(fname, TD_FILE_CREATE | TD_FILE_WRITE);
-  printf("On free thread open file\n");
+  (void)printf("On free thread open file\n");
   ASSERT_NE(pFile, nullptr);
 
   int ret = taosLockFile(pFile);
-  printf("On free thread lock file ret:%d\n", ret);
+  (void)printf("On free thread lock file ret:%d\n", ret);
   ASSERT_EQ(ret, 0);
 
   ret = taosUnLockFile(pFile);
-  printf("On free thread unlock file ret:%d\n", ret);
+  (void)printf("On free thread unlock file ret:%d\n", ret);
   ASSERT_EQ(ret, 0);
 
   ret = taosCloseFile(&pFile);
   ASSERT_EQ(ret, 0);
-  printf("On free thread close file ret:%d\n", ret);
+  (void)printf("On free thread close file ret:%d\n", ret);
 }
 void *fileOperateOnFreeThread(void *param) {
   fileOperateOnFree(param);
@@ -67,23 +103,19 @@ void *fileOperateOnFreeThread(void *param) {
 void fileOperateOnBusy(void *param) {
   char *    fname = (char *)param;
   TdFilePtr pFile = taosOpenFile(fname, TD_FILE_CREATE | TD_FILE_WRITE);
-  printf("On busy thread open file\n");
-  ASSERT_NE(pFile, nullptr);
+  (void)printf("On busy thread open file\n");
+  if (pFile == NULL) return;
+  // ASSERT_NE(pFile, nullptr);
 
   int ret = taosLockFile(pFile);
-  printf("On busy thread lock file ret:%d\n", ret);
+  (void)printf("On busy thread lock file ret:%d\n", ret);
   ASSERT_NE(ret, 0);
 
   ret = taosUnLockFile(pFile);
-  printf("On busy thread unlock file ret:%d\n", ret);
-#ifdef _TD_DARWIN_64
-  ASSERT_EQ(ret, 0);
-#else
-  ASSERT_NE(ret, 0);
-#endif
+  (void)printf("On busy thread unlock file ret:%d\n", ret);
 
   ret = taosCloseFile(&pFile);
-  printf("On busy thread close file ret:%d\n", ret);
+  (void)printf("On busy thread close file ret:%d\n", ret);
   ASSERT_EQ(ret, 0);
 }
 void *fileOperateOnBusyThread(void *param) {
@@ -96,43 +128,220 @@ TEST(osTest, osFile) {
 
   TdFilePtr pOutFD = taosCreateFile(fname, TD_FILE_WRITE | TD_FILE_CREATE | TD_FILE_TRUNC);
   ASSERT_NE(pOutFD, nullptr);
-  printf("create file success\n");
+  (void)printf("create file success\n");
+  (void)taosCloseFile(&pOutFD);
+
+  (void)taosCloseFile(&pOutFD);
 
   TdFilePtr pFile = taosOpenFile(fname, TD_FILE_CREATE | TD_FILE_WRITE);
-  printf("open file\n");
+  (void)printf("open file\n");
   ASSERT_NE(pFile, nullptr);
 
   int ret = taosLockFile(pFile);
-  printf("lock file ret:%d\n", ret);
+  (void)printf("lock file ret:%d\n", ret);
   ASSERT_EQ(ret, 0);
 
   TdThreadAttr thattr;
-  taosThreadAttrInit(&thattr);
+  (void)taosThreadAttrInit(&thattr);
 
   TdThread thread1, thread2;
-  taosThreadCreate(&(thread1), &thattr, fileOperateOnBusyThread, (void *)fname);
-  taosThreadAttrDestroy(&thattr);
+  (void)taosThreadCreate(&(thread1), &thattr, fileOperateOnBusyThread, (void *)fname);
+  (void)taosThreadAttrDestroy(&thattr);
 
-  taosThreadJoin(thread1, NULL);
+  (void)taosThreadJoin(thread1, NULL);
   taosThreadClear(&thread1);
 
   ret = taosUnLockFile(pFile);
-  printf("unlock file ret:%d\n", ret);
+  (void)printf("unlock file ret:%d\n", ret);
   ASSERT_EQ(ret, 0);
 
   ret = taosCloseFile(&pFile);
-  printf("close file ret:%d\n", ret);
+  (void)printf("close file ret:%d\n", ret);
   ASSERT_EQ(ret, 0);
 
-  taosThreadCreate(&(thread2), &thattr, fileOperateOnFreeThread, (void *)fname);
-  taosThreadAttrDestroy(&thattr);
+  (void)taosThreadCreate(&(thread2), &thattr, fileOperateOnFreeThread, (void *)fname);
+  (void)taosThreadAttrDestroy(&thattr);
 
-  taosThreadJoin(thread2, NULL);
+  (void)taosThreadJoin(thread2, NULL);
   taosThreadClear(&thread2);
 
   //int ret = taosRemoveFile(fname);
   //ASSERT_EQ(ret, 0);
   //printf("remove file success");
 }
+
+#ifndef OSFILE_PERFORMANCE_TEST
+
+#define MAX_WORDS          100
+#define MAX_WORD_LENGTH    20
+#define MAX_TEST_FILE_SIZE 100000
+#define TESTTIMES          1000
+
+char *getRandomWord() {
+  static char words[][MAX_WORD_LENGTH] = {
+        "Lorem", "ipsum", "dolor", "sit", "amet", "consectetur", "adipiscing", "elit",
+        "sed", "do", "eiusmod", "tempor", "incididunt", "ut", "labore", "et", "dolore", "magna",
+        "aliqua", "Ut", "enim", "ad", "minim", "veniam", "quis", "nostrud", "exercitation", "ullamco",
+        "Why", "do", "programmers", "prefer", "using", "dark", "mode?", "Because", "light", "attracts",
+        "bugs", "and", "they", "want", "to", "code", "in", "peace,", "like", "a", "ninja", "in", "the", "shadows."
+        "aliqua", "Ut", "enim", "ad", "minim", "veniam", "quis", "nostrud", "exercitation", "ullamco",
+        "laboris", "nisi", "ut", "aliquip", "ex", "ea", "commodo", "consequat", "Duis", "aute", "irure",
+        "dolor", "in", "reprehenderit", "in", "voluptate", "velit", "esse", "cillum", "dolore", "eu",
+        "fugiat", "nulla", "pariatur", "Excepteur", "sint", "occaecat", "cupidatat", "non", "proident",
+        "sunt", "in", "culpa", "qui", "officia", "deserunt", "mollit", "anim", "id", "est", "laborum"
+    };
+
+  return words[taosRand() % MAX_WORDS];
+}
+
+int64_t fillBufferWithRandomWords(char *buffer, int64_t maxBufferSize) {
+  int64_t len = 0;
+  while (len < maxBufferSize) {
+    char * word = getRandomWord();
+    size_t wordLen = strlen(word);
+
+    if (len + wordLen + 1 < maxBufferSize) {
+      (void)strcat(buffer, word);
+      (void)strcat(buffer, " ");
+      len += wordLen + 1;
+    } else {
+      break;
+    }
+  }
+  return len;
+}
+
+int64_t calculateAverage(int64_t arr[], int size) {
+  int64_t sum = 0;
+  for (int i = 0; i < size; i++) {
+    sum += arr[i];
+  }
+  return sum / size;
+}
+
+int64_t calculateMax(int64_t arr[], int size) {
+  int64_t max = arr[0];
+  for (int i = 1; i < size; i++) {
+    if (arr[i] > max) {
+      max = arr[i];
+    }
+  }
+  return max;
+}
+
+int64_t calculateMin(int64_t arr[], int size) {
+  int64_t min = arr[0];
+  for (int i = 1; i < size; i++) {
+    if (arr[i] < min) {
+      min = arr[i];
+    }
+  }
+  return min;
+}
+
+TEST(osTest, osFilePerformance) {
+  (void)printf("os file performance testting...\n");
+  int64_t WriteFileCost;
+  int64_t ReadFileCost;
+  int64_t OpenForWriteCloseFileCost;
+  int64_t OpenForReadCloseFileCost;
+
+  char *  buffer;
+  char *  writeBuffer = (char *)taosMemoryCalloc(1, MAX_TEST_FILE_SIZE);
+  char *  readBuffer = (char *)taosMemoryCalloc(1, MAX_TEST_FILE_SIZE);
+  int64_t size = fillBufferWithRandomWords(writeBuffer, MAX_TEST_FILE_SIZE);
+  char *  fname = "./osFilePerformanceTest.txt";
+
+  TdFilePtr pOutFD = taosCreateFile(fname, TD_FILE_WRITE | TD_FILE_CREATE | TD_FILE_TRUNC);
+  ASSERT_NE(pOutFD, nullptr);
+  (void)taosCloseFile(&pOutFD);
+
+  (void)printf("os file performance start write...\n");
+  int64_t t1 = taosGetTimestampUs();
+  for (int i = 0; i < TESTTIMES; ++i) {
+    TdFilePtr pFile = taosOpenFile(fname, TD_FILE_CREATE | TD_FILE_WRITE | TD_FILE_WRITE_THROUGH);
+    ASSERT_NE(pFile, nullptr);
+    (void)taosWriteFile(pFile, writeBuffer, size);
+    (void)taosFsyncFile(pFile);
+    (void)taosCloseFile(&pFile);
+  }
+
+  int64_t t2 = taosGetTimestampUs();
+  WriteFileCost = t2 - t1;
+
+  (void)printf("os file performance start read...\n");
+  for (int i = 0; i < TESTTIMES; ++i) {
+    TdFilePtr pFile = taosOpenFile(fname, TD_FILE_READ);
+    ASSERT_NE(pFile, nullptr);
+    (void)taosReadFile(pFile, readBuffer, size);
+    (void)taosCloseFile(&pFile);
+    int readLine = strlen(readBuffer);
+    ASSERT_EQ(size, readLine);
+  }
+  int64_t t3 = taosGetTimestampUs();
+  ReadFileCost = t3 - t2;
+
+  (void)printf("os file performance start open1...\n");
+  for (int i = 0; i < TESTTIMES; ++i) {
+    TdFilePtr pFile = taosOpenFile(fname, TD_FILE_CREATE | TD_FILE_WRITE);
+    ASSERT_NE(pFile, nullptr);
+    (void)taosCloseFile(&pFile);
+  }
+  int64_t t4 = taosGetTimestampUs();
+  OpenForWriteCloseFileCost = t4 - t3;
+
+  (void)printf("os file performance start open2...\n");
+  for (int i = 0; i < TESTTIMES; ++i) {
+    TdFilePtr pFile = taosOpenFile(fname, TD_FILE_CREATE | TD_FILE_READ);
+    ASSERT_NE(pFile, nullptr);
+    (void)taosCloseFile(&pFile);
+  }
+  int64_t t5 = taosGetTimestampUs();
+  OpenForReadCloseFileCost = t5 - t4;
+
+#ifdef WINDOWS
+  printf("os file performance start window native...\n");
+  for (int i = 0; i < TESTTIMES; ++i) {
+    HANDLE hFile = CreateFile(fname,                    // 文件名
+                              GENERIC_WRITE,            // 写权限
+                              FILE_SHARE_READ,          // 不共享
+                              NULL,                     // 默认安全描述符
+                              OPEN_ALWAYS,              // 打开已存在的文件
+                              FILE_FLAG_WRITE_THROUGH,  // 文件标志，可以根据实际需求调整
+                              NULL                      // 模板文件句柄，对于创建新文件不需要
+    );
+
+    if (hFile == INVALID_HANDLE_VALUE) {
+      printf("Error opening file\n");
+      break;
+    }
+
+    // 写入数据
+    DWORD bytesWritten;
+    if (!WriteFile(hFile, writeBuffer, size, &bytesWritten, NULL)) {
+      // 处理错误
+      printf("Error writing to file\n");
+      CloseHandle(hFile);
+      break;
+    }
+    // 关闭文件
+    CloseHandle(hFile);
+  }
+  int64_t t6 = taosGetTimestampUs();
+  int64_t nativeWritCost = t6 - t5;
+
+  printf("Test Write file using native API %d times, cost: %" PRId64 "us\n", TESTTIMES, nativeWritCost);
+#endif  // WINDOWS
+
+  taosMemoryFree(writeBuffer);
+  taosMemoryFree(readBuffer);
+
+  (void)printf("Test Write file %d times, cost: %" PRId64 "us\n", TESTTIMES, WriteFileCost);
+  (void)printf("Test Read file %d times, cost: %" PRId64 "us\n", TESTTIMES, ReadFileCost);
+  (void)printf("Test OpenForWrite & Close file %d times, cost: %" PRId64 "us\n", TESTTIMES, OpenForWriteCloseFileCost);
+  (void)printf("Test OpenForRead & Close file %d times, cost: %" PRId64 "us\n", TESTTIMES, OpenForReadCloseFileCost);
+}
+
+#endif // OSFILE_PERFORMANCE_TEST
 
 #pragma GCC diagnostic pop

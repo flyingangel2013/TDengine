@@ -22,6 +22,10 @@
 
 #if defined(CUS_NAME) || defined(CUS_PROMPT) || defined(CUS_EMAIL)
 #include "cus_name.h"
+#else
+#ifndef CUS_PROMPT
+#define CUS_PROMPT "taos"
+#endif
 #endif
 
 #define TAOS_CONSOLE_PROMPT_CONTINUE "   -> "
@@ -44,6 +48,7 @@
 #define SHELL_NET_ROLE "Net role when network connectivity test, options: client|server."
 #define SHELL_PKT_LEN  "Packet length used for net test, default is 1024 bytes."
 #define SHELL_PKT_NUM  "Packet numbers used for net test, default is 100."
+#define SHELL_BI_MODE  "Set BI mode"
 #define SHELL_VERSION  "Print program version."
 
 #ifdef WEBSOCKET
@@ -56,9 +61,10 @@ static int32_t shellParseSingleOpt(int32_t key, char *arg);
 
 void shellPrintHelp() {
   char indent[] = "  ";
-  printf("Usage: taos [OPTION...] \r\n\r\n");
+  printf("Usage: %s [OPTION...] \r\n\r\n", CUS_PROMPT);
   printf("%s%s%s%s\r\n", indent, "-a,", indent, SHELL_AUTH);
   printf("%s%s%s%s\r\n", indent, "-A,", indent, SHELL_GEN_AUTH);
+  printf("%s%s%s%s\r\n", indent, "-B,", indent, SHELL_BI_MODE);
   printf("%s%s%s%s\r\n", indent, "-c,", indent, SHELL_CFG_DIR);
   printf("%s%s%s%s\r\n", indent, "-C,", indent, SHELL_DMP_CFG);
   printf("%s%s%s%s\r\n", indent, "-d,", indent, SHELL_DB);
@@ -127,6 +133,7 @@ static struct argp_option shellOptions[] = {
     {"timeout", 'T', "SECONDS", 0, SHELL_TIMEOUT},
 #endif
     {"pktnum", 'N', "PKTNUM", 0, SHELL_PKT_NUM},
+    {"bimode", 'B', 0, 0, SHELL_BI_MODE},
     {0},
 };
 
@@ -172,6 +179,9 @@ static int32_t shellParseSingleOpt(int32_t key, char *arg) {
       break;
     case 'A':
       pArgs->is_gen_auth = true;
+      break;
+    case 'B':
+      pArgs->is_bi_mode = true;
       break;
     case 'c':
 #ifdef WEBSOCKET
@@ -238,7 +248,7 @@ static int32_t shellParseSingleOpt(int32_t key, char *arg) {
   }
   return 0;
 }
-
+#if defined(_TD_WINDOWS_64) || defined(_TD_WINDOWS_32) || defined(_TD_DARWIN_64)
 int32_t shellParseArgsWithoutArgp(int argc, char *argv[]) {
   SShellArgs *pArgs = &shell.args;
 
@@ -296,6 +306,7 @@ int32_t shellParseArgsWithoutArgp(int argc, char *argv[]) {
 
   return 0;
 }
+#endif
 
 static void shellInitArgs(int argc, char *argv[]) {
   for (int i = 1; i < argc; i++) {
@@ -304,7 +315,7 @@ static void shellInitArgs(int argc, char *argv[]) {
       if (strlen(argv[i]) == 2) {
         printf("Enter password: ");
         taosSetConsoleEcho(false);
-        if (scanf("%20s", shell.args.password) > 1) {
+        if (scanf("%128s", shell.args.password) > 1) {
           fprintf(stderr, "password reading error\n");
         }
         taosSetConsoleEcho(true);
@@ -409,11 +420,7 @@ static int32_t shellCheckArgs() {
 int32_t shellParseArgs(int32_t argc, char *argv[]) {
   shellInitArgs(argc, argv);
   shell.info.clientVersion =
-#ifdef WEBSOCKET
-      "Welcome to the %s Command Line Interface (WebSocket), Client Version:%s\r\n"
-#else
       "Welcome to the %s Command Line Interface, Client Version:%s\r\n"
-#endif
       "Copyright (c) 2023 by %s, all rights reserved.\r\n\r\n";
 #ifdef CUS_NAME
   strcpy(shell.info.cusName, CUS_NAME);
@@ -432,12 +439,12 @@ int32_t shellParseArgs(int32_t argc, char *argv[]) {
   shell.info.promptSize = strlen(shell.info.promptHeader);
 #ifdef TD_ENTERPRISE
   snprintf(shell.info.programVersion, sizeof(shell.info.programVersion),
-           "version: %s compatible_version: %s\ngitinfo: %s\ngitinfoOfInternal: %s\nbuildInfo: %s", version,
-           compatible_version, gitinfo, gitinfoOfInternal, buildinfo);
+           "%s\n%s version: %s compatible_version: %s\ngit: %s\ngitOfInternal: %s\nbuild: %s", TD_PRODUCT_NAME,
+           CUS_PROMPT, version, compatible_version, gitinfo, gitinfoOfInternal, buildinfo);
 #else
   snprintf(shell.info.programVersion, sizeof(shell.info.programVersion),
-           "version: %s compatible_version: %s\ngitinfo: %s\nbuildInfo: %s", version, compatible_version, gitinfo,
-           buildinfo);
+           "%s\n%s version: %s compatible_version: %s\ngit: %s\nbuild: %s", TD_PRODUCT_NAME, CUS_PROMPT, version,
+           compatible_version, gitinfo, buildinfo);
 #endif
 
 #if defined(_TD_WINDOWS_64) || defined(_TD_WINDOWS_32)

@@ -1,98 +1,78 @@
 using System;
-using TDengineWS.Impl;
-using TDengineDriver;
-using System.Runtime.InteropServices;
+using TDengine.Driver;
+using TDengine.Driver.Client;
 
 namespace Examples
 {
     public class WSStmtExample
     {
-        static int Main(string[] args)
+        // ANCHOR: main
+        public static void Main(string[] args)
         {
-            const string DSN = "ws://root:taosdata@127.0.0.1:6041/test";
-            const string table = "meters";
-            const string database = "test";
-            const string childTable = "d1005";
-            string insert = $"insert into ? using {database}.{table} tags(?,?) values(?,?,?,?)";
-            const int numOfTags = 2;
-            const int numOfColumns = 4;
-
-            // Establish connection
-            IntPtr wsConn = LibTaosWS.WSConnectWithDSN(DSN);
-            if (wsConn == IntPtr.Zero)
+            var host = "127.0.0.1";
+            var numOfSubTable = 10;
+            var numOfRow = 10;
+            var random = new Random();
+            var connectionString = $"protocol=WebSocket;host={host};port=6041;useSSL=false;username=root;password=taosdata";
+            try
             {
-                Console.WriteLine($"get WS connection failed");
-                return -1;
+                var builder = new ConnectionStringBuilder(connectionString);
+                using (var client = DbDriver.Open(builder))
+                {
+                    // create database
+                    client.Exec("CREATE DATABASE IF NOT EXISTS power");
+                    // use database
+                    client.Exec("USE power");
+                    // create table
+                    client.Exec(
+                        "CREATE STABLE IF NOT EXISTS meters (ts TIMESTAMP, current FLOAT, voltage INT, phase FLOAT) TAGS (groupId INT, location BINARY(24))");
+                    using (var stmt = client.StmtInit())
+                    {
+                        String sql = "INSERT INTO ? USING meters TAGS(?,?) VALUES (?,?,?,?)";
+                        stmt.Prepare(sql);
+                        for (int i = 1; i <= numOfSubTable; i++)
+                        {
+                            var tableName = $"d_bind_{i}";
+                            // set table name
+                            stmt.SetTableName(tableName);
+                            // set tags
+                            stmt.SetTags(new object[] { i, $"location_{i}" });
+                            var current = DateTime.Now;
+                            // bind rows
+                            for (int j = 0; j < numOfRow; j++)
+                            {
+                                stmt.BindRow(new object[]
+                                {
+                                    current.Add(TimeSpan.FromMilliseconds(j)),
+                                    random.NextSingle() * 30,
+                                    random.Next(300),
+                                    random.NextSingle()
+                                });
+                            }
+                            // add batch
+                            stmt.AddBatch();
+                            // execute
+                            stmt.Exec();
+                            // get affected rows
+                            var affectedRows = stmt.Affected();
+                            Console.WriteLine($"Successfully inserted {affectedRows} rows to {tableName}.");
+                        }
+                    }
+                }
             }
-            else
+            catch (TDengineError e)
             {
-                Console.WriteLine("Establish connect success...");
+                // handle TDengine error
+                Console.WriteLine("Failed to insert to table meters using stmt, ErrCode: " + e.Code + ", ErrMessage: " + e.Error);
+                throw;
             }
-
-            // init stmt
-            IntPtr wsStmt = LibTaosWS.WSStmtInit(wsConn);
-            if (wsStmt != IntPtr.Zero)
+            catch (Exception e)
             {
-                int code = LibTaosWS.WSStmtPrepare(wsStmt, insert);
-                ValidStmtStep(code, wsStmt, "WSStmtPrepare");
-
-                TAOS_MULTI_BIND[] wsTags = new TAOS_MULTI_BIND[] { WSMultiBind.WSBindNchar(new string[] { "California.SanDiego" }), WSMultiBind.WSBindInt(new int?[] { 4 }) };
-                code = LibTaosWS.WSStmtSetTbnameTags(wsStmt, $"{database}.{childTable}", wsTags, numOfTags);
-                ValidStmtStep(code, wsStmt, "WSStmtSetTbnameTags");
-
-                TAOS_MULTI_BIND[] data = new TAOS_MULTI_BIND[4];
-                data[0] = WSMultiBind.WSBindTimestamp(new long[] { 1538548687000, 1538548688000, 1538548689000, 1538548690000, 1538548691000 });
-                data[1] = WSMultiBind.WSBindFloat(new float?[] { 10.30F, 10.40F, 10.50F, 10.60F, 10.70F });
-                data[2] = WSMultiBind.WSBindInt(new int?[] { 223, 221, 222, 220, 219 });
-                data[3] = WSMultiBind.WSBindFloat(new float?[] { 0.31F, 0.32F, 0.33F, 0.35F, 0.28F });
-                code = LibTaosWS.WSStmtBindParamBatch(wsStmt, data, numOfColumns);
-                ValidStmtStep(code, wsStmt, "WSStmtBindParamBatch");
-
-                code = LibTaosWS.WSStmtAddBatch(wsStmt);
-                ValidStmtStep(code, wsStmt, "WSStmtAddBatch");
-
-                IntPtr stmtAffectRowPtr = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(Int32)));
-                code = LibTaosWS.WSStmtExecute(wsStmt, stmtAffectRowPtr);
-                ValidStmtStep(code, wsStmt, "WSStmtExecute");
-                Console.WriteLine("WS STMT insert {0} rows...", Marshal.ReadInt32(stmtAffectRowPtr));
-                Marshal.FreeHGlobal(stmtAffectRowPtr);
-
-                LibTaosWS.WSStmtClose(wsStmt);
-
-                // Free unmanaged memory
-                WSMultiBind.WSFreeTaosBind(wsTags);
-                WSMultiBind.WSFreeTaosBind(data);
-
-                //check result with SQL "SELECT * FROM test.d1005;"
-            }
-            else
-            {
-                Console.WriteLine("Init STMT failed...");
-            }
-
-            // close connection.
-            LibTaosWS.WSClose(wsConn);
-
-            return 0;
-        }
-
-        static void ValidStmtStep(int code, IntPtr wsStmt, string desc)
-        {
-            if (code != 0)
-            {
-                Console.WriteLine($"{desc} failed,reason: {LibTaosWS.WSErrorStr(wsStmt)}, code: {code}");
-            }
-            else
-            {
-                Console.WriteLine("{0} success...", desc);
+                // handle other exceptions
+                Console.WriteLine("Failed to insert to table meters using stmt, ErrMessage: " + e.Message);
+                throw;
             }
         }
+        // ANCHOR_END: main
     }
 }
-
-// WSStmtPrepare success...
-// WSStmtSetTbnameTags success...
-// WSStmtBindParamBatch success...
-// WSStmtAddBatch success...
-// WSStmtExecute success...
-// WS STMT insert 5 rows...

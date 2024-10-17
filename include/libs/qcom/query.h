@@ -21,12 +21,13 @@
 extern "C" {
 #endif
 
+#include "systable.h"
 #include "tarray.h"
 #include "thash.h"
 #include "tlog.h"
 #include "tmsg.h"
 #include "tmsgcb.h"
-#include "systable.h"
+#include "tsimplehash.h"
 
 typedef enum {
   JOB_TASK_STATUS_NULL = 0,
@@ -66,13 +67,18 @@ typedef enum {
 #define QUERY_RSP_POLICY_QUICK 1
 
 #define QUERY_MSG_MASK_SHOW_REWRITE() (1 << 0)
+#define QUERY_MSG_MASK_AUDIT()        (1 << 1)
+#define QUERY_MSG_MASK_VIEW()         (1 << 2)
 #define TEST_SHOW_REWRITE_MASK(m)     (((m)&QUERY_MSG_MASK_SHOW_REWRITE()) != 0)
+#define TEST_AUDIT_MASK(m)            (((m)&QUERY_MSG_MASK_AUDIT()) != 0)
+#define TEST_VIEW_MASK(m)             (((m)&QUERY_MSG_MASK_VIEW()) != 0)
 
 typedef struct STableComInfo {
   uint8_t  numOfTags;     // the number of tags in schema
   uint8_t  precision;     // the number of precision
   col_id_t numOfColumns;  // the number of columns
-  int32_t  rowSize;       // row size of the schema
+  int16_t  numOfPKs;
+  int32_t  rowSize;  // row size of the schema
 } STableComInfo;
 
 typedef struct SIndexMeta {
@@ -90,8 +96,7 @@ typedef struct SExecResult {
   void*    res;
 } SExecResult;
 
-
-#pragma pack(push, 1) 
+#pragma pack(push, 1)
 typedef struct SCTableMeta {
   uint64_t uid;
   uint64_t suid;
@@ -100,8 +105,7 @@ typedef struct SCTableMeta {
 } SCTableMeta;
 #pragma pack(pop)
 
-
-#pragma pack(push, 1) 
+#pragma pack(push, 1)
 typedef struct STableMeta {
   // BEGIN: KEEP THIS PART SAME WITH SCTableMeta
   uint64_t uid;
@@ -115,9 +119,22 @@ typedef struct STableMeta {
   int32_t       sversion;
   int32_t       tversion;
   STableComInfo tableInfo;
-  SSchema       schema[];
+  SSchemaExt*   schemaExt;  // There is no additional memory allocation, and the pointer is fixed to the next address of
+                            // the schema content.
+  SSchema schema[];
 } STableMeta;
 #pragma pack(pop)
+
+typedef struct SViewMeta {
+  uint64_t viewId;
+  char*    user;
+  char*    querySql;
+  int8_t   precision;
+  int8_t   type;
+  int32_t  version;
+  int32_t  numOfCols;
+  SSchema* pSchema;
+} SViewMeta;
 
 typedef struct SDBVgInfo {
   int32_t   vgVersion;
@@ -126,8 +143,8 @@ typedef struct SDBVgInfo {
   int8_t    hashMethod;
   int32_t   numOfTable;  // DB's table num, unit is TSDB_TABLE_NUM_UNIT
   int64_t   stateTs;
-  SHashObj* vgHash;  // key:vgId, value:SVgroupInfo
-  SArray*   vgArray; // SVgroupInfo
+  SHashObj* vgHash;   // key:vgId, value:SVgroupInfo
+  SArray*   vgArray;  // SVgroupInfo
 } SDBVgInfo;
 
 typedef struct SUseDbOutput {
@@ -148,11 +165,21 @@ typedef struct STableMetaOutput {
   STableMeta* tbMeta;
 } STableMetaOutput;
 
+typedef struct SViewMetaOutput {
+  char     name[TSDB_VIEW_NAME_LEN];
+  char     dbFName[TSDB_DB_FNAME_LEN];
+  char*    querySql;
+  int8_t   precision;
+  int32_t  numOfCols;
+  SSchema* pSchema;
+} SViewMetaOutput;
+
 typedef struct SDataBuf {
   int32_t  msgType;
   void*    pData;
   uint32_t len;
   void*    handle;
+  int64_t  handleRefId;
   SEpSet*  pEpSet;
 } SDataBuf;
 
@@ -166,7 +193,28 @@ typedef struct SBoundColInfo {
   int16_t* pColIndex;  // bound index => schema index
   int32_t  numOfCols;
   int32_t  numOfBound;
+  bool     hasBoundCols;
 } SBoundColInfo;
+
+typedef struct STableColsData {
+  char    tbName[TSDB_TABLE_NAME_LEN];
+  SArray* aCol;
+  bool    getFromHash;
+} STableColsData;
+
+typedef struct STableVgUid {
+  uint64_t uid;
+  int32_t  vgid;
+} STableVgUid;
+
+typedef struct STableBufInfo {
+  void*   pCurBuff;
+  SArray* pBufList;
+  int64_t buffUnit;
+  int64_t buffSize;
+  int64_t buffIdx;
+  int64_t buffOffset;
+} STableBufInfo;
 
 typedef struct STableDataCxt {
   STableMeta*    pMeta;
@@ -174,10 +222,36 @@ typedef struct STableDataCxt {
   SBoundColInfo  boundColsInfo;
   SArray*        pValues;
   SSubmitTbData* pData;
-  TSKEY          lastTs;
+  SRowKey        lastKey;
   bool           ordered;
   bool           duplicateTs;
 } STableDataCxt;
+
+typedef struct SStbInterlaceInfo {
+  void*          pCatalog;
+  void*          pQuery;
+  int32_t        acctId;
+  char*          dbname;
+  void*          transport;
+  SEpSet         mgmtEpSet;
+  void*          pRequest;
+  uint64_t       requestId;
+  int64_t        requestSelf;
+  bool           tbFromHash;
+  SHashObj*      pVgroupHash;
+  SArray*        pVgroupList;
+  SSHashObj*     pTableHash;
+  int64_t        tbRemainNum;
+  STableBufInfo  tbBuf;
+  char           firstName[TSDB_TABLE_NAME_LEN];
+  STSchema*      pTSchema;
+  STableDataCxt* pDataCtx;
+  void*          boundTags;
+
+  bool    tableColsReady;
+  SArray* pTableCols;
+  int32_t pTableColsIdx;
+} SStbInterlaceInfo;
 
 typedef int32_t (*__async_send_cb_fn_t)(void* param, SDataBuf* pMsg, int32_t code);
 typedef int32_t (*__async_exec_fn_t)(void* param);
@@ -223,6 +297,8 @@ int32_t cleanupTaskQueue();
  * @return
  */
 int32_t taosAsyncExec(__async_exec_fn_t execFn, void* execParam, int32_t* code);
+int32_t taosAsyncWait();
+int32_t taosAsyncRecover();
 
 void destroySendMsgInfo(SMsgSendInfo* pMsgBody);
 
@@ -231,6 +307,8 @@ void destroyAhandle(void* ahandle);
 int32_t asyncSendMsgToServerExt(void* pTransporter, SEpSet* epSet, int64_t* pTransporterId, SMsgSendInfo* pInfo,
                                 bool persistHandle, void* ctx);
 
+int32_t asyncFreeConnById(void* pTransporter, int64_t pid);
+;
 /**
  * Asynchronously send message to server, after the response received, the callback will be incured.
  *
@@ -248,26 +326,30 @@ void initQueryModuleMsgHandle();
 
 const SSchema* tGetTbnameColumnSchema();
 bool           tIsValidSchema(struct SSchema* pSchema, int32_t numOfCols, int32_t numOfTags);
+int32_t        getAsofJoinReverseOp(EOperatorType op);
 
 int32_t queryCreateCTableMetaFromMsg(STableMetaRsp* msg, SCTableMeta* pMeta);
 int32_t queryCreateTableMetaFromMsg(STableMetaRsp* msg, bool isSuperTable, STableMeta** pMeta);
+int32_t queryCreateTableMetaExFromMsg(STableMetaRsp* msg, bool isSuperTable, STableMeta** pMeta);
 char*   jobTaskStatusStr(int32_t status);
 
 SSchema createSchema(int8_t type, int32_t bytes, col_id_t colId, const char* name);
 
 void    destroyQueryExecRes(SExecResult* pRes);
 int32_t dataConverToStr(char* str, int type, void* buf, int32_t bufSize, int32_t* len);
-char*   parseTagDatatoJson(void* p);
+void    parseTagDatatoJson(void* p, char** jsonStr);
 int32_t cloneTableMeta(STableMeta* pSrc, STableMeta** pDst);
 void    getColumnTypeFromMeta(STableMeta* pMeta, char* pName, ETableColumnType* pType);
 int32_t cloneDbVgInfo(SDBVgInfo* pSrc, SDBVgInfo** pDst);
 int32_t cloneSVreateTbReq(SVCreateTbReq* pSrc, SVCreateTbReq** pDst);
 void    freeVgInfo(SDBVgInfo* vgInfo);
-void    freeDbCfgInfo(SDbCfgInfo *pInfo);
+void    freeDbCfgInfo(SDbCfgInfo* pInfo);
 
 extern int32_t (*queryBuildMsg[TDMT_MAX])(void* input, char** msg, int32_t msgSize, int32_t* msgLen,
                                           void* (*mallocFp)(int64_t));
 extern int32_t (*queryProcessMsgRsp[TDMT_MAX])(void* output, char* msg, int32_t msgSize);
+
+void* getTaskPoolWorkerCb();
 
 #define SET_META_TYPE_NULL(t)       (t) = META_TYPE_NULL_TABLE
 #define SET_META_TYPE_CTABLE(t)     (t) = META_TYPE_CTABLE
@@ -294,15 +376,20 @@ extern int32_t (*queryProcessMsgRsp[TDMT_MAX])(void* output, char* msg, int32_t 
   ((_code) == TSDB_CODE_SYN_NOT_LEADER || (_code) == TSDB_CODE_SYN_RESTORING || (_code) == TSDB_CODE_SYN_INTERNAL_ERROR)
 #define SYNC_OTHER_LEADER_REDIRECT_ERROR(_code) ((_code) == TSDB_CODE_MNODE_NOT_FOUND)
 
-#define NO_RET_REDIRECT_ERROR(_code) ((_code) == TSDB_CODE_RPC_BROKEN_LINK || (_code) == TSDB_CODE_RPC_NETWORK_UNAVAIL || (_code) == TSDB_CODE_RPC_SOMENODE_NOT_CONNECTED)
+#define NO_RET_REDIRECT_ERROR(_code)                                                   \
+  ((_code) == TSDB_CODE_RPC_BROKEN_LINK || (_code) == TSDB_CODE_RPC_NETWORK_UNAVAIL || \
+   (_code) == TSDB_CODE_RPC_SOMENODE_NOT_CONNECTED)
 
 #define NEED_REDIRECT_ERROR(_code)                                              \
   (NO_RET_REDIRECT_ERROR(_code) || SYNC_UNKNOWN_LEADER_REDIRECT_ERROR(_code) || \
    SYNC_SELF_LEADER_REDIRECT_ERROR(_code) || SYNC_OTHER_LEADER_REDIRECT_ERROR(_code))
 
+#define IS_VIEW_REQUEST(_type) ((_type) == TDMT_MND_CREATE_VIEW || (_type) == TDMT_MND_DROP_VIEW)
+
 #define NEED_CLIENT_RM_TBLMETA_REQ(_type)                                                                  \
   ((_type) == TDMT_VND_CREATE_TABLE || (_type) == TDMT_MND_CREATE_STB || (_type) == TDMT_VND_DROP_TABLE || \
-   (_type) == TDMT_MND_DROP_STB)
+   (_type) == TDMT_MND_DROP_STB || (_type) == TDMT_MND_CREATE_VIEW || (_type) == TDMT_MND_DROP_VIEW ||     \
+   (_type) == TDMT_MND_CREATE_TSMA || (_type) == TDMT_MND_DROP_TSMA || (_type) == TDMT_MND_DROP_TB_WITH_TSMA)
 
 #define NEED_SCHEDULER_REDIRECT_ERROR(_code)                                              \
   (SYNC_UNKNOWN_LEADER_REDIRECT_ERROR(_code) || SYNC_SELF_LEADER_REDIRECT_ERROR(_code) || \
@@ -314,6 +401,11 @@ extern int32_t (*queryProcessMsgRsp[TDMT_MAX])(void* output, char* msg, int32_t 
 #define IS_PERFORMANCE_SCHEMA_DB(_name) ((*(_name) == 'p') && (0 == strcmp(_name, TSDB_PERFORMANCE_SCHEMA_DB)))
 
 #define IS_SYS_DBNAME(_dbname) (IS_INFORMATION_SCHEMA_DB(_dbname) || IS_PERFORMANCE_SCHEMA_DB(_dbname))
+
+#define IS_AUDIT_DBNAME(_dbname)    ((*(_dbname) == 'a') && (0 == strcmp(_dbname, TSDB_AUDIT_DB)))
+#define IS_AUDIT_STB_NAME(_stbname) ((*(_stbname) == 'o') && (0 == strcmp(_stbname, TSDB_AUDIT_STB_OPERATION)))
+#define IS_AUDIT_CTB_NAME(_ctbname) \
+  ((*(_ctbname) == 't') && (0 == strncmp(_ctbname, TSDB_AUDIT_CTB_OPERATION, TSDB_AUDIT_CTB_OPERATION_LEN)))
 
 #define qFatal(...)                                                     \
   do {                                                                  \

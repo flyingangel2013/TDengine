@@ -99,8 +99,7 @@ int32_t smaBegin(SSma *pSma) {
     }
   }
 _exit:
-  terrno = code;
-  return code;
+  TAOS_RETURN(code);
 }
 
 extern int32_t tsdbCommitCommit(STsdb *tsdb);
@@ -119,7 +118,7 @@ _exit:
   if (code) {
     smaError("vgId:%d, %s failed at line %d since %s", TD_VID(pVnode), __func__, lino, tstrerror(code));
   }
-  return code;
+  TAOS_RETURN(code);
 }
 
 /**
@@ -156,10 +155,10 @@ static int32_t tdProcessRSmaAsyncPreCommitImpl(SSma *pSma, bool isCommit) {
   nLoops = 0;
   while (1) {
     if (atomic_load_32(&pRSmaStat->nFetchAll) <= 0) {
-      smaDebug("vgId:%d, rsma commit:%d, fetch tasks are all finished", SMA_VID(pSma), isCommit);
+      smaDebug("vgId:%d, rsma commit, type:%d, fetch tasks are all finished", SMA_VID(pSma), isCommit);
       break;
     } else {
-      smaDebug("vgId:%d, rsma commit%d, fetch tasks are not all finished yet", SMA_VID(pSma), isCommit);
+      smaDebug("vgId:%d, rsma commit, type:%d, fetch tasks are not all finished yet", SMA_VID(pSma), isCommit);
     }
     TD_SMA_LOOPS_CHECK(nLoops, 1000);
   }
@@ -169,21 +168,23 @@ static int32_t tdProcessRSmaAsyncPreCommitImpl(SSma *pSma, bool isCommit) {
    *  1) This is high cost task and should not put in asyncPreCommit originally.
    *  2) But, if put in asyncCommit, would trigger taskInfo cloning frequently.
    */
-  smaInfo("vgId:%d, rsma commit:%d, wait for all items to be consumed, TID:%p", SMA_VID(pSma), isCommit,
+  smaInfo("vgId:%d, rsma commit, type:%d, wait for all items to be consumed, TID:%p", SMA_VID(pSma), isCommit,
           (void *)taosGetSelfPthreadId());
   nLoops = 0;
   while (atomic_load_64(&pRSmaStat->nBufItems) > 0) {
     TD_SMA_LOOPS_CHECK(nLoops, 1000);
   }
+  smaInfo("vgId:%d, rsma commit, all items are consumed, TID:%p", SMA_VID(pSma), (void *)taosGetSelfPthreadId());
 
   if (!isCommit) goto _exit;
 
-  // code = tdRSmaPersistExecImpl(pRSmaStat, RSMA_INFO_HASH(pRSmaStat));
+  code = atomic_load_32(&pRSmaStat->execStat);
+  TSDB_CHECK_CODE(code, lino, _exit);
+
+  code = tdRSmaPersistExecImpl(pRSmaStat, RSMA_INFO_HASH(pRSmaStat));
   TSDB_CHECK_CODE(code, lino, _exit);
 
   smaInfo("vgId:%d, rsma commit, operator state committed, TID:%p", SMA_VID(pSma), (void *)taosGetSelfPthreadId());
-
-  smaInfo("vgId:%d, rsma commit, all items are consumed, TID:%p", SMA_VID(pSma), (void *)taosGetSelfPthreadId());
 
   // all rsma results are written completely
   STsdb *pTsdb = NULL;
@@ -200,7 +201,7 @@ _exit:
   if (code) {
     smaError("vgId:%d, %s failed at line %d since %s(%d)", SMA_VID(pSma), __func__, lino, tstrerror(code), isCommit);
   }
-  return code;
+  TAOS_RETURN(code);
 }
 
 /**
@@ -215,10 +216,7 @@ static int32_t tdProcessRSmaAsyncCommitImpl(SSma *pSma, SCommitInfo *pInfo) {
   int32_t lino = 0;
   SVnode *pVnode = pSma->pVnode;
 
-  SSmaEnv *pSmaEnv = SMA_RSMA_ENV(pSma);
-  if (!pSmaEnv) {
-    goto _exit;
-  }
+  if (!SMA_RSMA_ENV(pSma)) goto _exit;
 
   code = tsdbCommitBegin(VND_RSMA1(pVnode), pInfo);
   TSDB_CHECK_CODE(code, lino, _exit);
@@ -230,7 +228,7 @@ _exit:
   if (code) {
     smaError("vgId:%d, %s failed at line %d since %s", TD_VID(pVnode), __func__, lino, tstrerror(code));
   }
-  return code;
+  TAOS_RETURN(code);
 }
 
 /**
@@ -242,7 +240,7 @@ _exit:
 static int32_t tdProcessRSmaAsyncPostCommitImpl(SSma *pSma) {
   SSmaEnv *pEnv = SMA_RSMA_ENV(pSma);
   if (!pEnv) {
-    return TSDB_CODE_SUCCESS;
+    TAOS_RETURN(TSDB_CODE_SUCCESS);
   }
 
   SRSmaStat *pRSmaStat = (SRSmaStat *)SMA_ENV_STAT(pEnv);
@@ -259,7 +257,9 @@ static int32_t tdProcessRSmaAsyncPostCommitImpl(SSma *pSma) {
       if (RSMA_INFO_IS_DEL(pRSmaInfo)) {
         int32_t refVal = T_REF_VAL_GET(pRSmaInfo);
         if (refVal == 0) {
-          taosHashRemove(RSMA_INFO_HASH(pRSmaStat), pSuid, sizeof(*pSuid));
+          if(taosHashRemove(RSMA_INFO_HASH(pRSmaStat), pSuid, sizeof(*pSuid)) < 0) {
+            smaError("vgId:%d, rsma async post commit, failed to remove rsma info for table:%" PRIi64, SMA_VID(pSma), *pSuid);
+          }
         } else {
           smaDebug(
               "vgId:%d, rsma async post commit, not free rsma info since ref is %d although already deleted for "
@@ -277,5 +277,5 @@ static int32_t tdProcessRSmaAsyncPostCommitImpl(SSma *pSma) {
 
   atomic_store_8(RSMA_COMMIT_STAT(pRSmaStat), 0);
 
-  return TSDB_CODE_SUCCESS;
+  TAOS_RETURN(TSDB_CODE_SUCCESS);
 }

@@ -32,7 +32,7 @@ class TDTestCase:
     def init(self, conn, logSql, replicaVar=1):
         self.replicaVar = int(replicaVar)
         tdLog.debug(f"start to excute {__file__}")
-        tdSql.init(conn.cursor(),False)
+        tdSql.init(conn.cursor(),True)
 
     def __substr_condition(self):  # sourcery skip: extract-method
         substr_condition = []
@@ -79,7 +79,7 @@ class TDTestCase:
             groups = ["", substr_group_having, substr_group_no_having]
 
             if  pos < 1:
-                tdSql.error(f"select substr( {condition}, {pos}, {lens}) , {condition} from {tbname} ")
+                tdSql.query(f"select substr( {condition}, {pos}, {lens}) , {condition} from {tbname} ")
                 break
 
             tdSql.query(f"select substr( {condition}, {pos}, {lens}) , {condition} from {tbname} ")

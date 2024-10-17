@@ -44,7 +44,7 @@ int64_t taosGetLineCmd(TdCmdPtr pCmd, char **__restrict ptrBuf);
 
 int32_t taosEOFCmd(TdCmdPtr pCmd);
 
-int64_t taosCloseCmd(TdCmdPtr *ppCmd);
+void    taosCloseCmd(TdCmdPtr *ppCmd);
 
 void *taosLoadDll(const char *filename);
 
@@ -54,11 +54,11 @@ void taosCloseDll(void *handle);
 
 int32_t taosSetConsoleEcho(bool on);
 
-void taosSetTerminalMode();
+int32_t taosSetTerminalMode();
 
 int32_t taosGetOldTerminalMode();
 
-void taosResetTerminalMode();
+int32_t taosResetTerminalMode();
 
 #define STACKSIZE 100
 
@@ -81,8 +81,11 @@ void taosResetTerminalMode();
       unw_get_reg(&cursor, UNW_REG_IP, &pc);                                                                          \
       fname[0] = '\0';                                                                                                \
       (void)unw_get_proc_name(&cursor, fname, sizeof(fname), &offset);                                                \
-      size += 1;                                                                                                      \
       array[size] = (char *)taosMemoryMalloc(sizeof(char) * STACKSIZE + 1);                                           \
+      if(NULL == array[size]) {                                                                                       \
+        break;                                                                                                        \
+      }                                                                                                               \
+      size += 1;                                                                                                      \
       snprintf(array[size], STACKSIZE, "0x%lx : (%s+0x%lx) [0x%lx]\n", (long)pc, fname, (long)offset, (long)pc);      \
     }                                                                                                                 \
     if (ignoreNum < size && size > 0) {                                                                               \

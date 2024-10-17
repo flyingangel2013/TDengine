@@ -1,7 +1,9 @@
 aux_source_directory(src PARSER_SRC)
-IF (TD_BI_SUPPORT)
-  LIST(APPEND PARSER_SRC ${TD_ENTERPRISE_DIR}/src/plugins/bi/src/biRewriteQuery.c)
+
+IF (TD_ENTERPRISE)
+  LIST(APPEND PARSER_SRC ${TD_ENTERPRISE_DIR}/src/plugins/view/src/parserView.c)
 ENDIF ()
+
 add_library(parser STATIC ${PARSER_SRC})
 target_include_directories(
         parser

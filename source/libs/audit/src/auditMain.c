@@ -14,32 +14,76 @@
  */
 
 #define _DEFAULT_SOURCE
+
+#include "tarray.h"
 #include "auditInt.h"
 #include "taoserror.h"
 #include "thttp.h"
 #include "ttime.h"
 #include "tjson.h"
 #include "tglobal.h"
-#include "mnode.h"
+#include "audit.h"
+#include "osMemory.h"
 
 SAudit tsAudit = {0};
-char* tsAuditUri = "/audit";
+char* tsAuditUri = "/audit_v2";
+char* tsAuditBatchUri = "/audit-batch";
 
 int32_t auditInit(const SAuditCfg *pCfg) {
   tsAudit.cfg = *pCfg;
-  return 0;
+  tsAudit.records = taosArrayInit(0, sizeof(SAuditRecord *));
+  if(tsAudit.records == NULL) return terrno;
+  return taosThreadMutexInit(&tsAudit.lock, NULL);
+}
+
+void auditSetDnodeId(int32_t dnodeId) { tsAudit.dnodeId = dnodeId; }
+
+static FORCE_INLINE void auditDeleteRecord(SAuditRecord * record) {
+  if (record) {
+    taosMemoryFree(record->detail);
+    taosMemoryFree(record);
+  }
+}
+
+void auditCleanup() {
+  tsLogFp = NULL;
+  (void)taosThreadMutexLock(&tsAudit.lock);
+  taosArrayDestroyP(tsAudit.records, (FDelete)auditDeleteRecord);
+  (void)taosThreadMutexUnlock(&tsAudit.lock);
+  tsAudit.records = NULL;
+  (void)taosThreadMutexDestroy(&tsAudit.lock);
 }
 
 extern void auditRecordImp(SRpcMsg *pReq, int64_t clusterId, char *operation, char *target1, char *target2, 
                           char *detail, int32_t len);
+extern void auditAddRecordImp(SRpcMsg *pReq, int64_t clusterId, char *operation, char *target1, char *target2, 
+                          char *detail, int32_t len);
+extern void auditSendRecordsInBatchImp();
 
 void auditRecord(SRpcMsg *pReq, int64_t clusterId, char *operation, char *target1, char *target2, 
                 char *detail, int32_t len) {
   auditRecordImp(pReq, clusterId, operation, target1, target2, detail, len);
 }
 
+void auditAddRecord(SRpcMsg *pReq, int64_t clusterId, char *operation, char *target1, char *target2, 
+                char *detail, int32_t len) {
+  auditAddRecordImp(pReq, clusterId, operation, target1, target2, detail, len);
+}
+
+void auditSendRecordsInBatch(){
+  auditSendRecordsInBatchImp();
+}
+
 #ifndef TD_ENTERPRISE
 void auditRecordImp(SRpcMsg *pReq, int64_t clusterId, char *operation, char *target1, char *target2, 
                     char *detail, int32_t len) {
+}
+
+void auditAddRecordImp(SRpcMsg *pReq, int64_t clusterId, char *operation, char *target1, char *target2, 
+                    char *detail, int32_t len) {
+}
+
+void auditSendRecordsInBatchImp(){
+
 }
 #endif

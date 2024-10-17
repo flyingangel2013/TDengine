@@ -16,6 +16,9 @@ sys.path.append("./7-tmq")
 from tmqCommon import *
 
 class TDTestCase:
+    
+    clientCfgDict = {'debugFlag': 135}
+    updatecfgDict = {'debugFlag': 131, 'clientCfg':clientCfgDict}
     def __init__(self):
         self.vgroups    = 3
         self.ctbNum     = 10
@@ -24,7 +27,7 @@ class TDTestCase:
     def init(self, conn, logSql, replicaVar=1):
         self.replicaVar = int(replicaVar)
         tdLog.debug(f"start to excute {__file__}")
-        tdSql.init(conn.cursor(), False)
+        tdSql.init(conn.cursor(), True)
 
     def prepareTestEnv(self):
         tdLog.printNoPrefix("======== prepare test env include database, stable, ctables, and insert data: ")

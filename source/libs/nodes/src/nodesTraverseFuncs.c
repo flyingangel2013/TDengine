@@ -176,6 +176,11 @@ static EDealRes dispatchExpr(SNode* pNode, ETraversalOrder order, FNodeWalker wa
       }
       break;
     }
+    case QUERY_NODE_COUNT_WINDOW: {
+      SCountWindowNode* pEvent = (SCountWindowNode*)pNode;
+      res = walkExpr(pEvent->pCol, order, walker, pContext);
+      break;
+    }
     default:
       break;
   }
@@ -199,29 +204,37 @@ static EDealRes walkExprs(SNodeList* pNodeList, ETraversalOrder order, FNodeWalk
 }
 
 void nodesWalkExpr(SNode* pNode, FNodeWalker walker, void* pContext) {
-  (void)walkExpr(pNode, TRAVERSAL_PREORDER, walker, pContext);
+  EDealRes res;
+  res = walkExpr(pNode, TRAVERSAL_PREORDER, walker, pContext);
 }
 
 void nodesWalkExprs(SNodeList* pNodeList, FNodeWalker walker, void* pContext) {
-  (void)walkExprs(pNodeList, TRAVERSAL_PREORDER, walker, pContext);
+  EDealRes res;
+  res = walkExprs(pNodeList, TRAVERSAL_PREORDER, walker, pContext);
 }
 
 void nodesWalkExprPostOrder(SNode* pNode, FNodeWalker walker, void* pContext) {
-  (void)walkExpr(pNode, TRAVERSAL_POSTORDER, walker, pContext);
+  EDealRes res;
+  res = walkExpr(pNode, TRAVERSAL_POSTORDER, walker, pContext);
 }
 
 void nodesWalkExprsPostOrder(SNodeList* pList, FNodeWalker walker, void* pContext) {
-  (void)walkExprs(pList, TRAVERSAL_POSTORDER, walker, pContext);
+  EDealRes res;
+  res = walkExprs(pList, TRAVERSAL_POSTORDER, walker, pContext);
 }
 
-static void checkParamIsFunc(SFunctionNode *pFunc) {
+static void checkParamIsFunc(SFunctionNode* pFunc) {
   int32_t numOfParams = LIST_LENGTH(pFunc->pParameterList);
-  if (numOfParams > 1) {
-    for (int32_t i = 0; i < numOfParams; ++i) {
-      SNode* pPara = nodesListGetNode(pFunc->pParameterList, i);
-      if (nodeType(pPara) == QUERY_NODE_FUNCTION) {
-        ((SFunctionNode *)pPara)->node.asParam = true;
-      }
+  for (int32_t i = 0; i < numOfParams; ++i) {
+    SNode* pPara = nodesListGetNode(pFunc->pParameterList, i);
+    if (numOfParams > 1 && nodeType(pPara) == QUERY_NODE_FUNCTION) {
+      ((SFunctionNode*)pPara)->node.asParam = true;
+    }
+    if (nodeType(pPara) == QUERY_NODE_COLUMN) {
+      ((SColumnNode*)pPara)->node.asParam = true;
+    }
+    if (nodeType(pPara) == QUERY_NODE_VALUE) {
+      ((SValueNode*)pPara)->node.asParam = true;
     }
   }
 }
@@ -366,6 +379,19 @@ static EDealRes rewriteExpr(SNode** pRawNode, ETraversalOrder order, FNodeRewrit
       }
       break;
     }
+    case QUERY_NODE_WINDOW_OFFSET: {
+      SWindowOffsetNode* pWin = (SWindowOffsetNode*)pNode;
+      res = rewriteExpr(&pWin->pStartOffset, order, rewriter, pContext);
+      if (DEAL_RES_ERROR != res && DEAL_RES_END != res) {
+        res = rewriteExpr(&pWin->pEndOffset, order, rewriter, pContext);
+      }
+      break;
+    }
+    case QUERY_NODE_COUNT_WINDOW: {
+      SCountWindowNode* pEvent = (SCountWindowNode*)pNode;
+      res = rewriteExpr(&pEvent->pCol, order, rewriter, pContext);
+      break;
+    }
     default:
       break;
   }
@@ -404,7 +430,7 @@ void nodesRewriteExprsPostOrder(SNodeList* pList, FNodeRewriter rewriter, void* 
   (void)rewriteExprs(pList, TRAVERSAL_POSTORDER, rewriter, pContext);
 }
 
-void nodesWalkSelectStmt(SSelectStmt* pSelect, ESqlClause clause, FNodeWalker walker, void* pContext) {
+void nodesWalkSelectStmtImpl(SSelectStmt* pSelect, ESqlClause clause, FNodeWalker walker, void* pContext) {
   if (NULL == pSelect) {
     return;
   }
@@ -438,6 +464,10 @@ void nodesWalkSelectStmt(SSelectStmt* pSelect, ESqlClause clause, FNodeWalker wa
   }
 
   return;
+}
+
+void nodesWalkSelectStmt(SSelectStmt* pSelect, ESqlClause clause, FNodeWalker walker, void* pContext) {
+  nodesWalkSelectStmtImpl(pSelect, clause, walker, pContext);
 }
 
 void nodesRewriteSelectStmt(SSelectStmt* pSelect, ESqlClause clause, FNodeRewriter rewriter, void* pContext) {

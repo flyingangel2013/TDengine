@@ -23,7 +23,7 @@ class TDTestCase:
     def init(self, conn, logSql, replicaVar=1):
         self.replicaVar = int(replicaVar)
         tdLog.debug(f"start to excute {__file__}")
-        tdSql.init(conn.cursor(), False)
+        tdSql.init(conn.cursor(), True)
 
     def create_database(self,tsql, dbName,dropFlag=1,vgroups=2,replica=1, duration:str='1d'):
         if dropFlag == 1:
@@ -195,6 +195,10 @@ class TDTestCase:
         tdSql.checkData(1, 4, 2)
         tdSql.checkData(2, 4, 9)
         tdSql.checkData(3, 4, 9)
+        
+        sql = "SELECT _wstart, last(c1) FROM t6 INTERVAL(1w);"
+        tdSql.query(sql)
+        tdSql.checkRows(11)
 
     def test_partition_by_limit_no_agg(self):
         sql_template = 'select t1 from meters partition by t1 limit %d'

@@ -61,6 +61,16 @@ int32_t atanFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutp
 int32_t ceilFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
 int32_t floorFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
 int32_t roundFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
+int32_t truncFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
+
+int32_t piFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
+int32_t expFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
+int32_t lnFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
+int32_t modFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
+int32_t signFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
+int32_t degreesFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
+int32_t radiansFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
+int32_t randFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
 
 /* String functions */
 int32_t lengthFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
@@ -72,6 +82,14 @@ int32_t upperFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOut
 int32_t ltrimFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
 int32_t rtrimFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
 int32_t substrFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
+int32_t md5Function(SScalarParam* pInput, int32_t inputNum, SScalarParam* pOutput);
+int32_t charFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
+int32_t asciiFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
+int32_t positionFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
+int32_t trimFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
+int32_t replaceFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
+int32_t repeatFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
+int32_t substrIdxFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
 
 /* Conversion functions */
 int32_t castFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
@@ -80,11 +98,18 @@ int32_t castFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutp
 int32_t toISO8601Function(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
 int32_t toUnixtimestampFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
 int32_t toJsonFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
+int32_t toTimestampFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
+int32_t toCharFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
+int64_t offsetFromTz(char *timezone, int64_t factor);
 int32_t timeTruncateFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
 int32_t timeDiffFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
 int32_t nowFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
 int32_t todayFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
 int32_t timezoneFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
+int32_t weekdayFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
+int32_t dayofweekFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
+int32_t weekFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
+int32_t weekofyearFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
 
 bool getTimePseudoFuncEnv(struct SFunctionNode *pFunc, SFuncExecEnv *pEnv);
 
@@ -94,9 +119,7 @@ int32_t winDurFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOu
 int32_t qStartTsFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
 int32_t qEndTsFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
 
-int32_t qTbnameFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
-int32_t qTbUidFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
-int32_t qVgIdFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
+int32_t qPseudoTagFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
 
 /* Aggregation functions */
 int32_t countScalarFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
@@ -104,7 +127,7 @@ int32_t sumScalarFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *
 int32_t minScalarFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
 int32_t maxScalarFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
 int32_t avgScalarFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
-int32_t stddevScalarFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
+int32_t stdScalarFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
 int32_t leastSQRScalarFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
 int32_t percentileScalarFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);
 int32_t apercentileScalarFunction(SScalarParam *pInput, int32_t inputNum, SScalarParam *pOutput);

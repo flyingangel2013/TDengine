@@ -45,6 +45,7 @@ typedef enum EFunctionType {
   FUNCTION_TYPE_TWA,
   FUNCTION_TYPE_HISTOGRAM,
   FUNCTION_TYPE_HYPERLOGLOG,
+  FUNCTION_TYPE_STDVAR,
 
   // nonstandard SQL function
   FUNCTION_TYPE_BOTTOM = 500,
@@ -77,6 +78,15 @@ typedef enum EFunctionType {
   FUNCTION_TYPE_ASIN,
   FUNCTION_TYPE_ACOS,
   FUNCTION_TYPE_ATAN,
+  FUNCTION_TYPE_PI,
+  FUNCTION_TYPE_EXP,
+  FUNCTION_TYPE_LN,
+  FUNCTION_TYPE_MOD,
+  FUNCTION_TYPE_RAND,
+  FUNCTION_TYPE_SIGN,
+  FUNCTION_TYPE_DEGREES,
+  FUNCTION_TYPE_RADIANS,
+  FUNCTION_TYPE_TRUNCATE,
 
   // string function
   FUNCTION_TYPE_LENGTH = 1500,
@@ -88,12 +98,22 @@ typedef enum EFunctionType {
   FUNCTION_TYPE_LTRIM,
   FUNCTION_TYPE_RTRIM,
   FUNCTION_TYPE_SUBSTR,
+  FUNCTION_TYPE_MD5,
+  FUNCTION_TYPE_CHAR,
+  FUNCTION_TYPE_ASCII,
+  FUNCTION_TYPE_POSITION,
+  FUNCTION_TYPE_TRIM,
+  FUNCTION_TYPE_REPLACE,
+  FUNCTION_TYPE_REPEAT,
+  FUNCTION_TYPE_SUBSTR_IDX,
 
   // conversion function
   FUNCTION_TYPE_CAST = 2000,
   FUNCTION_TYPE_TO_ISO8601,
   FUNCTION_TYPE_TO_UNIXTIMESTAMP,
   FUNCTION_TYPE_TO_JSON,
+  FUNCTION_TYPE_TO_TIMESTAMP,
+  FUNCTION_TYPE_TO_CHAR,
 
   // date and time function
   FUNCTION_TYPE_NOW = 2500,
@@ -101,6 +121,10 @@ typedef enum EFunctionType {
   FUNCTION_TYPE_TIMETRUNCATE,
   FUNCTION_TYPE_TIMEZONE,
   FUNCTION_TYPE_TODAY,
+  FUNCTION_TYPE_WEEK,
+  FUNCTION_TYPE_WEEKDAY,
+  FUNCTION_TYPE_WEEKOFYEAR,
+  FUNCTION_TYPE_DAYOFWEEK,
 
   // system function
   FUNCTION_TYPE_DATABASE = 3000,
@@ -124,6 +148,7 @@ typedef enum EFunctionType {
   FUNCTION_TYPE_TAGS,
   FUNCTION_TYPE_TBUID,
   FUNCTION_TYPE_VGID,
+  FUNCTION_TYPE_VGVER,
 
   // internal function
   FUNCTION_TYPE_SELECT_VALUE = 3750,
@@ -134,6 +159,7 @@ typedef enum EFunctionType {
   FUNCTION_TYPE_CACHE_LAST_ROW,
   FUNCTION_TYPE_CACHE_LAST,
   FUNCTION_TYPE_TABLE_COUNT,
+  FUNCTION_TYPE_GROUP_CONST_VALUE,
 
   // distributed splitting functions
   FUNCTION_TYPE_APERCENTILE_PARTIAL = 4000,
@@ -157,10 +183,23 @@ typedef enum EFunctionType {
   FUNCTION_TYPE_LAST_MERGE,
   FUNCTION_TYPE_AVG_PARTIAL,
   FUNCTION_TYPE_AVG_MERGE,
-  FUNCTION_TYPE_STDDEV_PARTIAL,
+  FUNCTION_TYPE_STD_PARTIAL,
   FUNCTION_TYPE_STDDEV_MERGE,
+  FUNCTION_TYPE_STDVAR_MERGE,
   FUNCTION_TYPE_IRATE_PARTIAL,
   FUNCTION_TYPE_IRATE_MERGE,
+  FUNCTION_TYPE_AVG_STATE,
+  FUNCTION_TYPE_AVG_STATE_MERGE,
+  FUNCTION_TYPE_FIRST_STATE,
+  FUNCTION_TYPE_FIRST_STATE_MERGE,
+  FUNCTION_TYPE_LAST_STATE,
+  FUNCTION_TYPE_LAST_STATE_MERGE,
+  FUNCTION_TYPE_SPREAD_STATE,
+  FUNCTION_TYPE_SPREAD_STATE_MERGE,
+  FUNCTION_TYPE_STD_STATE,
+  FUNCTION_TYPE_STD_STATE_MERGE,
+  FUNCTION_TYPE_HYPERLOGLOG_STATE,
+  FUNCTION_TYPE_HYPERLOGLOG_STATE_MERGE,
 
   // geometry functions
   FUNCTION_TYPE_GEOM_FROM_TEXT = 4250,
@@ -235,13 +274,18 @@ bool fmIsCumulativeFunc(int32_t funcId);
 bool fmIsInterpPseudoColumnFunc(int32_t funcId);
 bool fmIsGroupKeyFunc(int32_t funcId);
 bool fmIsBlockDistFunc(int32_t funcId);
+bool fmIsIgnoreNullFunc(int32_t funcId);
 bool fmIsConstantResFunc(SFunctionNode* pFunc);
 bool fmIsSkipScanCheckFunc(int32_t funcId);
+bool fmIsPrimaryKeyFunc(int32_t funcId);
+bool fmIsProcessByRowFunc(int32_t funcId);
+bool fmisSelectGroupConstValueFunc(int32_t funcId);
+bool fmIsElapsedFunc(int32_t funcId);
 
-void getLastCacheDataType(SDataType* pType);
-SFunctionNode* createFunction(const char* pName, SNodeList* pParameterList);
+void getLastCacheDataType(SDataType* pType, int32_t pkBytes);
+int32_t createFunction(const char* pName, SNodeList* pParameterList, SFunctionNode** pFunc);
 
-int32_t fmGetDistMethod(const SFunctionNode* pFunc, SFunctionNode** pPartialFunc, SFunctionNode** pMergeFunc);
+int32_t fmGetDistMethod(const SFunctionNode* pFunc, SFunctionNode** pPartialFunc, SFunctionNode** pMidFunc, SFunctionNode** pMergeFunc);
 
 typedef enum EFuncDataRequired {
   FUNC_DATA_REQUIRED_DATA_LOAD = 1,
@@ -252,15 +296,26 @@ typedef enum EFuncDataRequired {
 } EFuncDataRequired;
 
 EFuncDataRequired fmFuncDataRequired(SFunctionNode* pFunc, STimeWindow* pTimeWindow);
-EFuncDataRequired fmFuncDynDataRequired(int32_t funcId, void* pRes, STimeWindow* pTimeWindow);
+EFuncDataRequired fmFuncDynDataRequired(int32_t funcId, void* pRes, SDataBlockInfo* pBlockInfo);
 
 int32_t fmGetFuncExecFuncs(int32_t funcId, SFuncExecFuncs* pFpSet);
 int32_t fmGetScalarFuncExecFuncs(int32_t funcId, SScalarFuncExecFuncs* pFpSet);
 int32_t fmGetUdafExecFuncs(int32_t funcId, SFuncExecFuncs* pFpSet);
+
+#ifdef BUILD_NO_CALL
 int32_t fmSetInvertFunc(int32_t funcId, SFuncExecFuncs* pFpSet);
 int32_t fmSetNormalFunc(int32_t funcId, SFuncExecFuncs* pFpSet);
 bool    fmIsInvertible(int32_t funcId);
+#endif
+
 char*   fmGetFuncName(int32_t funcId);
+
+bool    fmIsTSMASupportedFunc(func_id_t funcId);
+int32_t fmCreateStateFuncs(SNodeList* pFuncs);
+int32_t fmCreateStateMergeFuncs(SNodeList* pFuncs);
+int32_t fmGetFuncId(const char* name);
+bool    fmIsMyStateFunc(int32_t funcId, int32_t stateFuncId);
+bool    fmIsCountLikeFunc(int32_t funcId);
 
 #ifdef __cplusplus
 }

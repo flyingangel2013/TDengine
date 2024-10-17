@@ -3,12 +3,16 @@ add_dependencies(tmq_demo taos)
 add_executable(tmq_sim tmqSim.c)
 add_executable(create_table createTable.c)
 add_executable(tmq_taosx_ci tmq_taosx_ci.c)
+add_executable(tmq_ts5466 tmq_ts5466.c)
+add_executable(tmq_write_raw_test tmq_write_raw_test.c)
 add_executable(write_raw_block_test write_raw_block_test.c)
 add_executable(sml_test sml_test.c)
 add_executable(get_db_name_test get_db_name_test.c)
 add_executable(tmq_offset tmqOffset.c)
+add_executable(tmq_multi_thread_test tmq_multi_thread_test.c)
 add_executable(tmq_offset_test tmq_offset_test.c)
 add_executable(varbinary_test varbinary_test.c)
+add_executable(replay_test replay_test.c)
 
 if(${TD_LINUX})
 add_executable(tsz_test tsz_test.c)
@@ -21,6 +25,15 @@ target_link_libraries(
     PUBLIC common
     PUBLIC os
 )
+
+target_link_libraries(
+    tmq_multi_thread_test
+    PUBLIC taos
+    PUBLIC util
+    PUBLIC common
+    PUBLIC os
+)
+
 target_link_libraries(
     create_table
     PUBLIC taos
@@ -43,6 +56,13 @@ target_link_libraries(
     PUBLIC os
 )
 target_link_libraries(
+    tmq_ts5466
+    PUBLIC taos
+    PUBLIC util
+    PUBLIC common
+    PUBLIC os
+)
+target_link_libraries(
     tmq_taosx_ci
     PUBLIC taos
     PUBLIC util
@@ -58,7 +78,23 @@ target_link_libraries(
 )
 
 target_link_libraries(
+    replay_test
+    PUBLIC taos
+    PUBLIC util
+    PUBLIC common
+    PUBLIC os
+)
+
+target_link_libraries(
     write_raw_block_test
+    PUBLIC taos
+    PUBLIC util
+    PUBLIC common
+    PUBLIC os
+)
+
+target_link_libraries(
+    tmq_write_raw_test
     PUBLIC taos
     PUBLIC util
     PUBLIC common

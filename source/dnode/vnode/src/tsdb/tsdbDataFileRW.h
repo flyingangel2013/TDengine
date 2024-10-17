@@ -25,18 +25,16 @@
 extern "C" {
 #endif
 
-typedef TARRAY2(SBlockIdx) TBlockIdxArray;
-typedef TARRAY2(SDataBlk) TDataBlkArray;
 typedef TARRAY2(SColumnDataAgg) TColumnDataAggArray;
 
 typedef struct {
   SFDataPtr brinBlkPtr[1];
-  SFDataPtr rsrvd[2];
+  char      rsrvd[32];
 } SHeadFooter;
 
 typedef struct {
   SFDataPtr tombBlkPtr[1];
-  SFDataPtr rsrvd[2];
+  char      rsrvd[32];
 } STombFooter;
 
 // SDataFileReader =============================================
@@ -48,12 +46,12 @@ typedef struct SDataFileReaderConfig {
     bool   exist;
     STFile file;
   } files[TSDB_FTYPE_MAX];
-  uint8_t **bufArr;
+  SBuffer *buffers;
 } SDataFileReaderConfig;
 
 int32_t tsdbDataFileReaderOpen(const char *fname[/* TSDB_FTYPE_MAX */], const SDataFileReaderConfig *config,
                                SDataFileReader **reader);
-int32_t tsdbDataFileReaderClose(SDataFileReader **reader);
+void    tsdbDataFileReaderClose(SDataFileReader **reader);
 // .head
 int32_t tsdbDataFileReadBrinBlk(SDataFileReader *reader, const TBrinBlkArray **brinBlkArray);
 int32_t tsdbDataFileReadBrinBlock(SDataFileReader *reader, const SBrinBlk *brinBlk, SBrinBlock *brinBlock);
@@ -71,21 +69,23 @@ int32_t tsdbDataFileReadTombBlock(SDataFileReader *reader, const STombBlk *tombB
 // SDataFileWriter =============================================
 typedef struct SDataFileWriter SDataFileWriter;
 typedef struct SDataFileWriterConfig {
-  STsdb  *tsdb;
-  int8_t  cmprAlg;
-  int32_t maxRow;
-  int32_t szPage;
-  int32_t fid;
-  int64_t cid;
-  SDiskID did;
-  int64_t compactVersion;
+  STsdb   *tsdb;
+  uint32_t cmprAlg;
+  int32_t  maxRow;
+  int32_t  szPage;
+  int32_t  fid;
+  int64_t  cid;
+  SDiskID  did;
+  int64_t  compactVersion;
+  int32_t  lcn;
   struct {
     bool   exist;
     STFile file;
   } files[TSDB_FTYPE_MAX];
   SSkmInfo *skmTb;
   SSkmInfo *skmRow;
-  uint8_t **bufArr;
+  SHashObj *pColCmpr;
+  SBuffer  *buffers;
 } SDataFileWriterConfig;
 
 int32_t tsdbDataFileWriterOpen(const SDataFileWriterConfig *config, SDataFileWriter **writer);
@@ -95,7 +95,28 @@ int32_t tsdbDataFileWriteRow(SDataFileWriter *writer, SRowInfo *row);
 int32_t tsdbDataFileWriteBlockData(SDataFileWriter *writer, SBlockData *bData);
 int32_t tsdbDataFileFlush(SDataFileWriter *writer);
 
+// head
+int32_t tsdbFileWriteBrinBlock(STsdbFD *fd, SBrinBlock *brinBlock, uint32_t cmprAlg, int64_t *fileSize,
+                               TBrinBlkArray *brinBlkArray, SBuffer *buffers, SVersionRange *range,
+                               int32_t encryptAlgorithm, char *encryptKey);
+int32_t tsdbFileWriteBrinBlk(STsdbFD *fd, TBrinBlkArray *brinBlkArray, SFDataPtr *ptr, int64_t *fileSize,
+                             int32_t encryptAlgorithm, char *encryptKey);
+int32_t tsdbFileWriteHeadFooter(STsdbFD *fd, int64_t *fileSize, const SHeadFooter *footer, int32_t encryptAlgorithm,
+                                char *encryptKey);
+
+// tomb
 int32_t tsdbDataFileWriteTombRecord(SDataFileWriter *writer, const STombRecord *record);
+int32_t tsdbFileWriteTombBlock(STsdbFD *fd, STombBlock *tombBlock, int8_t cmprAlg, int64_t *fileSize,
+                               TTombBlkArray *tombBlkArray, SBuffer *buffers, SVersionRange *range,
+                               int32_t encryptAlgorithm, char *encryptKey);
+int32_t tsdbFileWriteTombBlk(STsdbFD *fd, const TTombBlkArray *tombBlkArray, SFDataPtr *ptr, int64_t *fileSize,
+                             int32_t encryptAlgorithm, char *encryptKey);
+int32_t tsdbFileWriteTombFooter(STsdbFD *fd, const STombFooter *footer, int64_t *fileSize, int32_t encryptAlgorithm,
+                                char *encryptKey);
+
+// utils
+void tsdbWriterUpdVerRange(SVersionRange *range, int64_t minVer, int64_t maxVer);
+void tsdbTFileUpdVerRange(STFile *f, SVersionRange range);
 
 #ifdef __cplusplus
 }

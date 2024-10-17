@@ -23,7 +23,7 @@
 #include "syncSnapshot.h"
 #include "tglobal.h"
 
-void syncCfg2SimpleStr(const SSyncCfg* pCfg, char* buf, int32_t bufLen) {
+static void syncCfg2SimpleStr(const SSyncCfg* pCfg, char* buf, int32_t bufLen) {
   int32_t len = snprintf(buf, bufLen, "{num:%d, as:%d, [", pCfg->replicaNum, pCfg->myIndex);
   for (int32_t i = 0; i < pCfg->replicaNum; ++i) {
     len += snprintf(buf + len, bufLen - len, "%s:%d", pCfg->nodeInfo[i].nodeFqdn, pCfg->nodeInfo[i].nodePort);
@@ -43,23 +43,19 @@ void syncUtilNodeInfo2EpSet(const SNodeInfo* pInfo, SEpSet* pEpSet) {
 
 bool syncUtilNodeInfo2RaftId(const SNodeInfo* pInfo, SyncGroupId vgId, SRaftId* raftId) {
   uint32_t ipv4 = 0xFFFFFFFF;
-  sDebug("vgId:%d, start to resolve sync addr fqdn in %d seconds, "
-        "dnode:%d cluster:%" PRId64 " fqdn:%s port:%u ", 
-        vgId, tsResolveFQDNRetryTime,
-        pInfo->nodeId, pInfo->clusterId, pInfo->nodeFqdn, pInfo->nodePort);
-  for(int i = 0; i < tsResolveFQDNRetryTime; i++){
-    ipv4 = taosGetIpv4FromFqdn(pInfo->nodeFqdn);
-    if (ipv4 == 0xFFFFFFFF || ipv4 == 1) {
-      sError("failed to resolve ipv4 addr, fqdn:%s, wait one second", pInfo->nodeFqdn);
+  sDebug("vgId:%d, resolve sync addr from fqdn, ep:%s:%u", vgId, pInfo->nodeFqdn, pInfo->nodePort);
+  for (int32_t i = 0; i < tsResolveFQDNRetryTime; i++) {
+    int32_t code = taosGetIpv4FromFqdn(pInfo->nodeFqdn, &ipv4);
+    if (code) {
+      sError("vgId:%d, failed to resolve sync addr, dnode:%d fqdn:%s, retry", vgId, pInfo->nodeId, pInfo->nodeFqdn);
       taosSsleep(1);
-    }
-    else{
+    } else {
       break;
     }
   }
-  
+
   if (ipv4 == 0xFFFFFFFF || ipv4 == 1) {
-    sError("failed to resolve ipv4 addr, fqdn:%s", pInfo->nodeFqdn);
+    sError("vgId:%d, failed to resolve sync addr, dnode:%d fqdn:%s", vgId, pInfo->nodeId, pInfo->nodeFqdn);
     terrno = TSDB_CODE_TSC_INVALID_FQDN;
     return false;
   }
@@ -69,14 +65,20 @@ bool syncUtilNodeInfo2RaftId(const SNodeInfo* pInfo, SyncGroupId vgId, SRaftId* 
   raftId->addr = SYNC_ADDR(pInfo);
   raftId->vgId = vgId;
 
-  sInfo("vgId:%d, sync addr:%" PRIu64 ", dnode:%d cluster:%" PRId64 " fqdn:%s ip:%s port:%u ipv4:%u", vgId,
-        raftId->addr, pInfo->nodeId, pInfo->clusterId, pInfo->nodeFqdn, ipbuf, pInfo->nodePort, ipv4);
+  sInfo("vgId:%d, sync addr:%" PRIu64 " is resolved, ep:%s:%u ip:%s ipv4:%u dnode:%d cluster:%" PRId64, vgId,
+        raftId->addr, pInfo->nodeFqdn, pInfo->nodePort, ipbuf, ipv4, pInfo->nodeId, pInfo->clusterId);
   return true;
 }
 
 bool syncUtilSameId(const SRaftId* pId1, const SRaftId* pId2) {
-  if (pId1->addr == pId2->addr && pId1->vgId == pId2->vgId) return true;
-  if ((CID(pId1) == 0 || CID(pId2) == 0) && (DID(pId1) == DID(pId2)) && pId1->vgId == pId2->vgId) return true;
+  if (pId1->addr == pId2->addr && pId1->vgId == pId2->vgId) {
+    return true;
+  }
+
+  if ((CID(pId1) == 0 || CID(pId2) == 0) && (DID(pId1) == DID(pId2)) && pId1->vgId == pId2->vgId) {
+    return true;
+  }
+
   return false;
 }
 
@@ -99,9 +101,12 @@ void syncUtilMsgHtoN(void* msg) {
   pHead->vgId = htonl(pHead->vgId);
 }
 
-bool syncUtilUserPreCommit(tmsg_t msgType) { return msgType != TDMT_SYNC_NOOP && msgType != TDMT_SYNC_LEADER_TRANSFER; }
-
-bool syncUtilUserRollback(tmsg_t msgType) { return msgType != TDMT_SYNC_NOOP && msgType != TDMT_SYNC_LEADER_TRANSFER; }
+void syncUtilGenerateArbToken(int32_t nodeId, int32_t groupId, char* buf) {
+  (void)memset(buf, 0, TSDB_ARB_TOKEN_SIZE);
+  int32_t randVal = taosSafeRand() % 1000;
+  int64_t currentMs = taosGetTimestampMs();
+  (void)snprintf(buf, TSDB_ARB_TOKEN_SIZE, "d%d#g%d#%" PRId64 "#%d", nodeId, groupId, currentMs, randVal);
+}
 
 // for leader
 static void syncHearbeatReplyTime2Str(SSyncNode* pSyncNode, char* buf, int32_t bufLen) {
@@ -136,18 +141,18 @@ static void syncLogBufferStates2Str(SSyncNode* pSyncNode, char* buf, int32_t buf
   if (pBuf == NULL) {
     return;
   }
-  int len = 0;
+  int32_t len = 0;
   len += snprintf(buf + len, bufLen - len, "[%" PRId64 " %" PRId64 " %" PRId64 ", %" PRId64 ")", pBuf->startIndex,
                   pBuf->commitIndex, pBuf->matchIndex, pBuf->endIndex);
 }
 
 static void syncLogReplStates2Str(SSyncNode* pSyncNode, char* buf, int32_t bufLen) {
-  int len = 0;
+  int32_t len = 0;
   len += snprintf(buf + len, bufLen - len, "%s", "{");
   for (int32_t i = 0; i < pSyncNode->replicaNum; i++) {
     SSyncLogReplMgr* pMgr = pSyncNode->logReplMgrs[i];
     if (pMgr == NULL) break;
-    len += snprintf(buf + len, bufLen - len, "%d:%d [%" PRId64 " %" PRId64 ", %" PRId64 ")", i, pMgr->restored,
+    len += snprintf(buf + len, bufLen - len, "%d:%d [%" PRId64 " %" PRId64 ", %" PRId64 "]", i, pMgr->restored,
                     pMgr->startIndex, pMgr->matchIndex, pMgr->endIndex);
     if (i + 1 < pSyncNode->replicaNum) {
       len += snprintf(buf + len, bufLen - len, "%s", ", ");
@@ -177,7 +182,7 @@ void syncPrintNodeLog(const char* flags, ELogLevel level, int32_t dflag, SSyncNo
 
   SSnapshot snapshot = {.data = NULL, .lastApplyIndex = -1, .lastApplyTerm = 0};
   if (pNode->pFsm != NULL && pNode->pFsm->FpGetSnapshotInfo != NULL) {
-    pNode->pFsm->FpGetSnapshotInfo(pNode->pFsm, &snapshot);
+    (void)pNode->pFsm->FpGetSnapshotInfo(pNode->pFsm, &snapshot);
   }
 
   SyncIndex logLastIndex = SYNC_INDEX_INVALID;
@@ -221,19 +226,22 @@ void syncPrintNodeLog(const char* flags, ELogLevel level, int32_t dflag, SSyncNo
   SyncIndex appliedIndex = pNode->pFsm->FpAppliedIndexCb(pNode->pFsm);
 
   if (pNode != NULL) {
-    taosPrintLog(flags, level, dflag,
-                 "vgId:%d, %s, sync:%s, term:%" PRIu64 ", commit-index:%" PRId64 ", applied-index:%" PRId64
-                 ", first-ver:%" PRId64 ", last-ver:%" PRId64 ", min:%" PRId64 ", snap:%" PRId64 ", snap-term:%" PRIu64
-                 ", elect-times:%d, as-leader-times:%d, cfg-ch-times:%d, hb-slow:%d, hbr-slow:%d, "
-                 "aq-items:%d, snaping:%" PRId64 ", replicas:%d, last-cfg:%" PRId64
-                 ", chging:%d, restore:%d, quorum:%d, elect-lc-timer:%" PRId64 ", hb:%" PRId64
-                 ", buffer:%s, repl-mgrs:%s, members:%s, hb:%s, hb-reply:%s",
-                 pNode->vgId, eventLog, syncStr(pNode->state), currentTerm, pNode->commitIndex, appliedIndex,
-                 logBeginIndex, logLastIndex, pNode->minMatchIndex, snapshot.lastApplyIndex, snapshot.lastApplyTerm,
-                 pNode->electNum, pNode->becomeLeaderNum, pNode->configChangeNum, pNode->hbSlowNum, pNode->hbrSlowNum,
-                 aqItems, pNode->snapshottingIndex, pNode->replicaNum, pNode->raftCfg.lastConfigIndex, pNode->changing,
-                 pNode->restoreFinish, syncNodeDynamicQuorum(pNode), pNode->electTimerLogicClock,
-                 pNode->heartbeatTimerLogicClockUser, bufferStatesStr, replMgrStatesStr, cfgStr, hbTimeStr, hbrTimeStr);
+    taosPrintLog(
+        flags, level, dflag,
+        "vgId:%d, %s, sync:%s, term:%" PRIu64 ", commit-index:%" PRId64 ", assigned-index:%" PRId64
+        ", applied-index:%" PRId64 ", first-ver:%" PRId64 ", last-ver:%" PRId64 ", min:%" PRId64 ", snap:%" PRId64
+        ", snap-term:%" PRIu64
+        ", elect-times:%d, as-leader-times:%d, as-assigned-leader-times:%d, cfg-ch-times:%d, hb-slow:%d, hbr-slow:%d, "
+        "aq-items:%d, snaping:%" PRId64 ", replicas:%d, last-cfg:%" PRId64
+        ", chging:%d, restore:%d, quorum:%d, elect-lc-timer:%" PRId64 ", hb:%" PRId64
+        ", buffer:%s, repl-mgrs:%s, members:%s, hb:%s, hb-reply:%s",
+        pNode->vgId, eventLog, syncStr(pNode->state), currentTerm, pNode->commitIndex, pNode->assignedCommitIndex,
+        appliedIndex, logBeginIndex, logLastIndex, pNode->minMatchIndex, snapshot.lastApplyIndex,
+        snapshot.lastApplyTerm, pNode->electNum, pNode->becomeLeaderNum, pNode->becomeAssignedLeaderNum,
+        pNode->configChangeNum, pNode->hbSlowNum, pNode->hbrSlowNum, aqItems, pNode->snapshottingIndex,
+        pNode->replicaNum, pNode->raftCfg.lastConfigIndex, pNode->changing, pNode->restoreFinish,
+        syncNodeDynamicQuorum(pNode), pNode->electTimerLogicClock, pNode->heartbeatTimerLogicClockUser, bufferStatesStr,
+        replMgrStatesStr, cfgStr, hbTimeStr, hbrTimeStr);
   }
 }
 
@@ -244,7 +252,7 @@ void syncPrintSnapshotSenderLog(const char* flags, ELogLevel level, int32_t dfla
 
   SSnapshot snapshot = {.data = NULL, .lastApplyIndex = -1, .lastApplyTerm = 0};
   if (pNode->pFsm != NULL && pNode->pFsm->FpGetSnapshotInfo != NULL) {
-    pNode->pFsm->FpGetSnapshotInfo(pNode->pFsm, &snapshot);
+    (void)pNode->pFsm->FpGetSnapshotInfo(pNode->pFsm, &snapshot);
   }
 
   SyncIndex logLastIndex = SYNC_INDEX_INVALID;
@@ -267,21 +275,23 @@ void syncPrintSnapshotSenderLog(const char* flags, ELogLevel level, int32_t dfla
   va_end(argpointer);
 
   taosPrintLog(flags, level, dflag,
-               "vgId:%d, %s, sync:%s, snap-sender:{%p start:%" PRId64 " end:%" PRId64 " last-index:%" PRId64
-               " last-term:%" PRIu64 " last-cfg:%" PRId64
-               ", seq:%d ack:%d finish:%d, as:%d dnode:%d}"
+               "vgId:%d, %s, sync:%s, snap-sender:%p signature:(%" PRId64 ", %" PRId64 "), {start:%" PRId64
+               " end:%" PRId64 " last-index:%" PRId64 " last-term:%" PRId64 " last-cfg:%" PRId64
+               ", seq:%d, ack:%d, "
+               " buf:[%" PRId64 " %" PRId64 ", %" PRId64
+               "], finish:%d, as:%d, to-dnode:%d}"
                ", term:%" PRIu64 ", commit-index:%" PRId64 ", firstver:%" PRId64 ", lastver:%" PRId64
                ", min-match:%" PRId64 ", snap:{last-index:%" PRId64 ", term:%" PRIu64
                "}, standby:%d, batch-sz:%d, replicas:%d, last-cfg:%" PRId64
-               ", chging:%d, restore:%d, quorum:%d, lc-timer:{elect:%" PRId64 ", hb:%" PRId64 "}, peer:%s, cfg:%s",
-               pNode->vgId, eventLog, syncStr(pNode->state), pSender, pSender->snapshotParam.start,
-               pSender->snapshotParam.end, pSender->snapshot.lastApplyIndex, pSender->snapshot.lastApplyTerm,
-               pSender->snapshot.lastConfigIndex, pSender->seq, pSender->ack, pSender->finish, pSender->replicaIndex,
-               DID(&pNode->replicasId[pSender->replicaIndex]), raftStoreGetTerm(pNode), pNode->commitIndex,
-               logBeginIndex, logLastIndex, pNode->minMatchIndex, snapshot.lastApplyIndex, snapshot.lastApplyTerm,
-               pNode->raftCfg.isStandBy, pNode->raftCfg.batchSize, pNode->replicaNum, pNode->raftCfg.lastConfigIndex,
-               pNode->changing, pNode->restoreFinish, syncNodeDynamicQuorum(pNode), pNode->electTimerLogicClock,
-               pNode->heartbeatTimerLogicClockUser, peerStr, cfgStr);
+               ", chging:%d, restore:%d, quorum:%d, peer:%s, cfg:%s",
+               pNode->vgId, eventLog, syncStr(pNode->state), pSender, pSender->term, pSender->startTime,
+               pSender->snapshotParam.start, pSender->snapshotParam.end, pSender->snapshot.lastApplyIndex,
+               pSender->snapshot.lastApplyTerm, pSender->snapshot.lastConfigIndex, pSender->seq, pSender->ack,
+               pSender->pSndBuf->start, pSender->pSndBuf->cursor, pSender->pSndBuf->end, pSender->finish,
+               pSender->replicaIndex, DID(&pNode->replicasId[pSender->replicaIndex]), raftStoreGetTerm(pNode),
+               pNode->commitIndex, logBeginIndex, logLastIndex, pNode->minMatchIndex, snapshot.lastApplyIndex,
+               snapshot.lastApplyTerm, pNode->raftCfg.isStandBy, pNode->raftCfg.batchSize, pNode->replicaNum,
+               pNode->raftCfg.lastConfigIndex, pNode->changing, pNode->restoreFinish, pNode->quorum, peerStr, cfgStr);
 }
 
 void syncPrintSnapshotReceiverLog(const char* flags, ELogLevel level, int32_t dflag, SSyncSnapshotReceiver* pReceiver,
@@ -291,7 +301,7 @@ void syncPrintSnapshotReceiverLog(const char* flags, ELogLevel level, int32_t df
 
   SSnapshot snapshot = {.data = NULL, .lastApplyIndex = -1, .lastApplyTerm = 0};
   if (pNode->pFsm != NULL && pNode->pFsm->FpGetSnapshotInfo != NULL) {
-    pNode->pFsm->FpGetSnapshotInfo(pNode->pFsm, &snapshot);
+    (void)pNode->pFsm->FpGetSnapshotInfo(pNode->pFsm, &snapshot);
   }
 
   SyncIndex logLastIndex = SYNC_INDEX_INVALID;
@@ -316,19 +326,21 @@ void syncPrintSnapshotReceiverLog(const char* flags, ELogLevel level, int32_t df
   taosPrintLog(
       flags, level, dflag,
       "vgId:%d, %s, sync:%s,"
-      " snap-receiver:{%p started:%d acked:%d term:%" PRIu64 " start-time:%" PRId64 " from-dnode:%d, start:%" PRId64
-      " end:%" PRId64 " last-index:%" PRId64 " last-term:%" PRIu64 " last-cfg:%" PRId64
+      " snap-receiver:%p signature:(%" PRId64 ", %" PRId64 "), {start:%d ack:%d buf:[%" PRId64 " %" PRId64 ", %" PRId64
+      ")"
+      " from-dnode:%d, start:%" PRId64 " end:%" PRId64 " last-index:%" PRId64 " last-term:%" PRIu64 " last-cfg:%" PRId64
       "}"
       ", term:%" PRIu64 ", commit-index:%" PRId64 ", firstver:%" PRId64 ", lastver:%" PRId64 ", min-match:%" PRId64
       ", snap:{last-index:%" PRId64 ", last-term:%" PRIu64 "}, standby:%d, batch-sz:%d, replicas:%d, last-cfg:%" PRId64
-      ", chging:%d, restore:%d, quorum:%d, lc-timers:{elect:%" PRId64 ", hb:%" PRId64 "}, peer:%s, cfg:%s",
-      pNode->vgId, eventLog, syncStr(pNode->state), pReceiver, pReceiver->start, pReceiver->ack, pReceiver->term,
-      pReceiver->startTime, DID(&pReceiver->fromId), pReceiver->snapshotParam.start, pReceiver->snapshotParam.end,
+      ", chging:%d, restore:%d, quorum:%d, peer:%s, cfg:%s",
+      pNode->vgId, eventLog, syncStr(pNode->state), pReceiver, pReceiver->term, pReceiver->startTime, pReceiver->start,
+      pReceiver->ack, pReceiver->pRcvBuf->start, pReceiver->pRcvBuf->cursor, pReceiver->pRcvBuf->end,
+      DID(&pReceiver->fromId), pReceiver->snapshotParam.start, pReceiver->snapshotParam.end,
       pReceiver->snapshot.lastApplyIndex, pReceiver->snapshot.lastApplyTerm, pReceiver->snapshot.lastConfigIndex,
       raftStoreGetTerm(pNode), pNode->commitIndex, logBeginIndex, logLastIndex, pNode->minMatchIndex,
       snapshot.lastApplyIndex, snapshot.lastApplyTerm, pNode->raftCfg.isStandBy, pNode->raftCfg.batchSize,
-      pNode->replicaNum, pNode->raftCfg.lastConfigIndex, pNode->changing, pNode->restoreFinish,
-      syncNodeDynamicQuorum(pNode), pNode->electTimerLogicClock, pNode->heartbeatTimerLogicClockUser, peerStr, cfgStr);
+      pNode->replicaNum, pNode->raftCfg.lastConfigIndex, pNode->changing, pNode->restoreFinish, pNode->quorum, peerStr,
+      cfgStr);
 }
 
 void syncLogRecvTimer(SSyncNode* pSyncNode, const SyncTimeout* pMsg, const char* s) {
@@ -382,13 +394,13 @@ void syncLogRecvHeartbeat(SSyncNode* pSyncNode, const SyncHeartbeat* pMsg, int64
 
     sNTrace(pSyncNode,
             "recv sync-heartbeat from dnode:%d slow {term:%" PRId64 ", commit-index:%" PRId64 ", min-match:%" PRId64
-            ", ts:%" PRId64 "}, %s, net elapsed:%" PRId64,
+            ", ts:%" PRId64 "}, QID:%s, net elapsed:%" PRId64,
             DID(&pMsg->srcId), pMsg->term, pMsg->commitIndex, pMsg->minMatchIndex, pMsg->timeStamp, s, timeDiff);
   }
 
   sNTrace(pSyncNode,
           "recv sync-heartbeat from dnode:%d {term:%" PRId64 ", commit-index:%" PRId64 ", min-match:%" PRId64
-          ", ts:%" PRId64 "}, %s, net elapsed:%" PRId64,
+          ", ts:%" PRId64 "}, QID:%s, net elapsed:%" PRId64,
           DID(&pMsg->srcId), pMsg->term, pMsg->commitIndex, pMsg->minMatchIndex, pMsg->timeStamp, s, timeDiff);
 }
 
@@ -458,13 +470,13 @@ void syncLogSendAppendEntries(SSyncNode* pSyncNode, const SyncAppendEntries* pMs
           pMsg->commitIndex, pMsg->dataLen, s);
 }
 
-void syncLogRecvRequestVote(SSyncNode* pSyncNode, const SyncRequestVote* pMsg, int32_t voteGranted,
-                            const char* errmsg) {
+void syncLogRecvRequestVote(SSyncNode* pSyncNode, const SyncRequestVote* pMsg, int32_t voteGranted, const char* errmsg,
+                            const char* opt) {
   char statusMsg[64];
   snprintf(statusMsg, sizeof(statusMsg), "granted:%d", voteGranted);
   sNInfo(pSyncNode,
-         "recv sync-request-vote from dnode:%d, {term:%" PRId64 ", last-index:%" PRId64 ", last-term:%" PRId64 "}, %s",
-         DID(&pMsg->srcId), pMsg->term, pMsg->lastLogIndex, pMsg->lastLogTerm,
+         "%s sync-request-vote from dnode:%d, {term:%" PRId64 ", last-index:%" PRId64 ", last-term:%" PRId64 "}, %s",
+         opt, DID(&pMsg->srcId), pMsg->term, pMsg->lastLogIndex, pMsg->lastLogTerm,
          (voteGranted != -1) ? statusMsg : errmsg);
 }
 
@@ -482,4 +494,13 @@ void syncLogRecvRequestVoteReply(SSyncNode* pSyncNode, const SyncRequestVoteRepl
 void syncLogSendRequestVoteReply(SSyncNode* pSyncNode, const SyncRequestVoteReply* pMsg, const char* s) {
   sNInfo(pSyncNode, "send sync-request-vote-reply to dnode:%d {term:%" PRId64 ", grant:%d}, %s", DID(&pMsg->destId),
          pMsg->term, pMsg->voteGranted, s);
+}
+
+int32_t syncSnapInfoDataRealloc(SSnapshot* pSnap, int32_t size) {
+  void* data = taosMemoryRealloc(pSnap->data, size);
+  if (data == NULL) {
+    return terrno;
+  }
+  pSnap->data = data;
+  return 0;
 }

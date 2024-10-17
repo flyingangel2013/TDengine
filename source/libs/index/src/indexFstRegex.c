@@ -24,12 +24,27 @@ FstRegex *regexCreate(const char *str) {
   }
 
   regex->orig = taosStrdup(str);
+  if (regex->orig == NULL) {
+    taosMemoryFree(regex);
+    return NULL;
+  }
 
   // construct insts based on str
   SArray *insts = taosArrayInit(256, sizeof(uint8_t));
+  if (insts == NULL) {
+    taosMemoryFree(regex->orig);
+    taosMemoryFree(regex);
+    return NULL;
+  }
+
   for (int i = 0; i < strlen(str); i++) {
     uint8_t v = str[i];
-    taosArrayPush(insts, &v);
+    if (taosArrayPush(insts, &v) == NULL) {
+      taosArrayDestroy(insts);
+      taosMemoryFree(regex->orig);
+      taosMemoryFree(regex);
+      return NULL;
+    }
   }
   FstDfaBuilder *builder = dfaBuilderCreate(insts);
   regex->dfa = dfaBuilderBuild(builder);
@@ -42,6 +57,7 @@ void regexDestroy(FstRegex *regex) {
   taosMemoryFree(regex);
 }
 
+#ifdef BUILD_NO_CALL
 uint32_t regexAutomStart(FstRegex *regex) {
   ///// no nothing
   return 0;
@@ -65,3 +81,4 @@ bool regexAutomAccept(FstRegex *regex, uint32_t state, uint8_t byte, uint32_t *r
   }
   return dfaAccept(regex->dfa, state, byte, result);
 }
+#endif

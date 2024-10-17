@@ -1,11 +1,13 @@
 from urllib.parse import uses_relative
 import taos
+import taosws
 import sys
 import os
 import time
 import platform
 import inspect
 from taos.tmq import Consumer
+from taos.tmq import *
 
 from pathlib import Path
 from util.log import *
@@ -17,7 +19,7 @@ from util.dnodes import TDDnode
 from util.cluster import *
 import subprocess
 
-BASEVERSION = "3.0.2.3"
+BASEVERSION = "3.2.0.0"
 class TDTestCase:
     def caseDescription(self):
         f'''
@@ -30,7 +32,7 @@ class TDTestCase:
         self.replicaVar = int(replicaVar)
         tdLog.debug(f"start to excute {__file__}")
         tdSql.init(conn.cursor())
-        self.deletedDataSql= '''drop database if exists deldata;create database deldata duration 300 stt_trigger 4; ;use deldata;
+        self.deletedDataSql= '''drop database if exists deldata;create database deldata duration 300 stt_trigger 1; ;use deldata;
                             create table deldata.stb1 (ts timestamp, c1 int, c2 bigint, c3 smallint, c4 tinyint, c5 float, c6 double, c7 bool, c8 binary(16),c9 nchar(32), c10 timestamp) tags (t1 int);
                             create table deldata.ct1 using deldata.stb1 tags ( 1 );
                             insert into deldata.ct1 values ( now()-0s, 0, 0, 0, 0, 0.0, 0.0, 0, 'binary0', 'nchar0', now()+0a ) ( now()-10s, 1, 11111, 111, 11, 1.11, 11.11, 1, 'binary1', 'nchar1', now()+1a ) ( now()-20s, 2, 22222, 222, 22, 2.22, 22.22, 0, 'binary2', 'nchar2', now()+2a ) ( now()-30s, 3, 33333, 333, 33, 3.33, 33.33, 1, 'binary3', 'nchar3', now()+3a );
@@ -41,6 +43,7 @@ class TDTestCase:
                             delete from deldata.ct1;
                             insert into deldata.ct1 values ( now()-0s, 0, 0, 0, 0, 0.0, 0.0, 0, 'binary0', 'nchar0', now()+0a );
                             flush database deldata;'''   
+        
     def checkProcessPid(self,processName):
         i=0
         while i<60:
@@ -82,7 +85,7 @@ class TDTestCase:
 
         return cfgPath
 
-    def installTaosd(self,bPath,cPath):
+    def installTaosd(self, bPath, cPath, package_type="community"):
         # os.system(f"rmtaos && mkdir -p {self.getBuildPath()}/build/lib/temp &&  mv {self.getBuildPath()}/build/lib/libtaos.so*  {self.getBuildPath()}/build/lib/temp/ ")
         # os.system(f" mv {bPath}/build  {bPath}/build_bak ")
         # os.system(f"mv {self.getBuildPath()}/build/lib/libtaos.so  {self.getBuildPath()}/build/lib/libtaos.so_bak ")
@@ -90,7 +93,15 @@ class TDTestCase:
         
         packagePath = "/usr/local/src/"
         dataPath = cPath + "/../data/"
-        packageName = "TDengine-server-"+  BASEVERSION + "-Linux-x64.tar.gz"
+        packageType = "server"
+        if package_type == "community" :
+            packageType = "server"
+        elif package_type == "enterprise":
+            packageType = "enterprise"
+        if platform.system() == "Linux" and platform.machine() == "aarch64":
+            packageName = "TDengine-"+ packageType + "-" + BASEVERSION + "-Linux-arm64.tar.gz"
+        else:
+            packageName = "TDengine-"+ packageType + "-" + BASEVERSION + "-Linux-x64.tar.gz"
         packageTPath = packageName.split("-Linux-")[0]
         my_file = Path(f"{packagePath}/{packageName}")
         if not  my_file.exists():
@@ -100,9 +111,21 @@ class TDTestCase:
         else: 
             print(f"{packageName} has been exists")
         os.system(f" cd {packagePath} &&  tar xvf  {packageName} && cd {packageTPath} &&  ./install.sh  -e no  " )
-        tdDnodes.stop(1)
-        print(f"start taosd: rm -rf {dataPath}/*  && nohup taosd -c {cPath} & ")
-        os.system(f"rm -rf {dataPath}/*  && nohup taosd -c {cPath} & " )
+        
+        os.system(f"pkill -9 taosd" )
+        print(f"start taosd: rm -rf {dataPath}/*  && nohup /usr/bin/taosd -c {cPath} & ")
+        os.system(f"rm -rf {dataPath}/*  && nohup  /usr/bin/taosd -c {cPath} & " )
+        os.system(f"killall taosadapter" )
+        os.system(f"cp /etc/taos/taosadapter.toml {cPath}/taosadapter.toml  " )
+        taosadapter_cfg = cPath + "/taosadapter.toml"
+        taosadapter_log_path = cPath + "/../log/"
+        print(f"taosadapter_cfg:{taosadapter_cfg},taosadapter_log_path:{taosadapter_log_path} ")
+        self.alter_string_in_file(taosadapter_cfg,"#path = \"/var/log/taos\"",f"path = \"{taosadapter_log_path}\"")
+        self.alter_string_in_file(taosadapter_cfg,"taosConfigDir = \"\"",f"taosConfigDir = \"{cPath}\"")
+        print("/usr/bin/taosadapter --version")
+        os.system(f"  /usr/bin/taosadapter --version" )
+        print(f" LD_LIBRARY_PATH=/usr/lib -c  {taosadapter_cfg} 2>&1 & ")
+        os.system(f" LD_LIBRARY_PATH=/usr/lib  /usr/bin/taosadapter -c  {taosadapter_cfg} 2>&1 & " )
         sleep(5)
 
 
@@ -113,7 +136,24 @@ class TDTestCase:
     def is_list_same_as_ordered_list(self,unordered_list, ordered_list):
         sorted_list = sorted(unordered_list)
         return sorted_list == ordered_list
-        
+
+    def alter_string_in_file(self,file,old_str,new_str):
+        """
+        replace str in file
+        :param file
+        :param old_str
+        :param new_str
+        :return:
+        """
+        file_data = ""
+        with open(file, "r", encoding="utf-8") as f:
+            for line in f:
+                if old_str in line:
+                    line = line.replace(old_str,new_str)
+                file_data += line
+        with open(file,"w",encoding="utf-8") as f:
+            f.write(file_data)
+
     def run(self):
         scriptsPath = os.path.dirname(os.path.realpath(__file__))
         distro_id = distro.id()
@@ -127,40 +167,90 @@ class TDTestCase:
         cPath = self.getCfgPath()
         dbname = "test"
         stb = f"{dbname}.meters"
-        self.installTaosd(bPath,cPath)
-        os.system("echo 'debugFlag 143' > /etc/taos/taos.cfg ")
+        # package_type = "enterprise"
+        package_type = "community"
+        self.installTaosd(bPath,cPath,package_type)
+        # os.system(f"echo 'debugFlag 143' >> {cPath}/taos.cfg ")
         tableNumbers=100
-        recordNumbers1=100
+        recordNumbers1=1000
         recordNumbers2=1000
 
-        # tdsqlF=tdCom.newTdSql()
-        # print(tdsqlF)
-        # tdsqlF.query(f"SELECT SERVER_VERSION();")
-        # print(tdsqlF.query(f"SELECT SERVER_VERSION();"))
-        # oldServerVersion=tdsqlF.queryResult[0][0]
-        # tdLog.info(f"Base server version is {oldServerVersion}")
-        # tdsqlF.query(f"SELECT CLIENT_VERSION();")
-        # # the oldClientVersion can't be updated in the same python process,so the version is new compiled verison
-        # oldClientVersion=tdsqlF.queryResult[0][0]
-        # tdLog.info(f"Base client version is {oldClientVersion}")
-        # baseVersion = "3.0.1.8"
-
         tdLog.printNoPrefix(f"==========step1:prepare and check data in old version-{BASEVERSION}")
-        tdLog.info(f" LD_LIBRARY_PATH=/usr/lib  taosBenchmark -t {tableNumbers} -n {recordNumbers1} -y  ")
-        os.system(f"LD_LIBRARY_PATH=/usr/lib taosBenchmark -t {tableNumbers} -n {recordNumbers1} -y  ")
+        tdLog.info(f" LD_LIBRARY_PATH=/usr/lib  taosBenchmark -t {tableNumbers} -n {recordNumbers1} -v 1 -O 5  -y ")
+        os.system(f"LD_LIBRARY_PATH=/usr/lib taosBenchmark -t {tableNumbers} -n {recordNumbers1} -v 1 -O 5  -y  ")
+        os.system("LD_LIBRARY_PATH=/usr/lib  taos -s 'alter database test   keep 365000 '")
+        os.system("LD_LIBRARY_PATH=/usr/lib  taos -s 'alter database test  cachemodel \"both\" '")
+        os.system("LD_LIBRARY_PATH=/usr/lib  taos -s 'select last(*) from test.meters '")        
+        os.system("LD_LIBRARY_PATH=/usr/lib  taos -s 'flush database test '")
+        os.system("LD_LIBRARY_PATH=/usr/lib  taos -s \"insert into test.d1 values (now+1s, 11, 190, 0.21), (now+2s, 11, 190, 0.21), (now+3s, 11, 190, 0.21), ('2015-07-14 08:39:59.001', 11, 190, 0.21), ('2032-08-14 08:39:59.001 ', 11, 190, 0.21) test.d3  values  (now+6s, 11, 190, 0.21), (now+7s, 11, 190, 0.21), (now+8s, 11, 190, 0.21), ('2033-07-14 08:39:59.000', 119, 191, 0.25) test.d3  (ts) values ('2033-07-14 08:39:58.000');\"")
+        os.system("LD_LIBRARY_PATH=/usr/lib  taos -s 'select last(*) from test.meters '")
         os.system("LD_LIBRARY_PATH=/usr/lib  taos -s 'flush database test '")
 
-        # os.system(f"LD_LIBRARY_PATH=/usr/lib taos -s 'use test;create stream current_stream into current_stream_output_stb as select _wstart as `start`, _wend as wend, max(current) as max_current from meters where voltage <= 220 interval (5s);' ")
-        # os.system('LD_LIBRARY_PATH=/usr/lib taos -s  "use test;create stream power_stream into power_stream_output_stb as select ts, concat_ws(\\".\\", location, tbname) as meter_location, current*voltage*cos(phase) as active_power, current*voltage*sin(phase) as reactive_power from meters partition by tbname;" ')
-        # os.system('LD_LIBRARY_PATH=/usr/lib taos -s  "use test;show streams;" ')
-        os.system(f"sed -i 's/\/etc\/taos/{cPath}/' 0-others/tmqBasic.json ")
-        # os.system("LD_LIBRARY_PATH=/usr/lib  taosBenchmark -f 0-others/tmqBasic.json -y ")
-        os.system('LD_LIBRARY_PATH=/usr/lib taos -s  "create topic if not exists tmq_test_topic  as select  current,voltage,phase from test.meters where voltage <= 106 and current <= 5;" ')
-        os.system('LD_LIBRARY_PATH=/usr/lib taos -s  "use test;show topics;" ')
+        os.system("LD_LIBRARY_PATH=/usr/lib  taos -s \"insert into test.d1 values (now+11s, 11, 190, 0.21), (now+12s, 11, 190, 0.21), (now+13s, 11, 190, 0.21), (now+14s, 11, 190, 0.21), (now+15s, 11, 190, 0.21) test.d3  values  (now+16s, 11, 190, 0.21), (now+17s, 11, 190, 0.21), (now+18s, 11, 190, 0.21), (now+19s, 119, 191, 0.25) test.d3  (ts) values (now+20s);\"")
+        os.system("LD_LIBRARY_PATH=/usr/lib  taosBenchmark -f 0-others/com_alltypedata.json -y")
+        os.system("LD_LIBRARY_PATH=/usr/lib  taos -s 'flush database curdb '")
+        os.system("LD_LIBRARY_PATH=/usr/lib  taos -s 'alter database curdb  cachemodel \"both\" '")
+        os.system("LD_LIBRARY_PATH=/usr/lib  taos -s 'select count(*) from curdb.meters '")
+        os.system("LD_LIBRARY_PATH=/usr/lib  taos -s 'select last(*) from curdb.meters '")
+        os.system("LD_LIBRARY_PATH=/usr/lib  taos -s 'select sum(fc) from curdb.meters '")
+        os.system("LD_LIBRARY_PATH=/usr/lib  taos -s 'select avg(ic) from curdb.meters '")
+        os.system("LD_LIBRARY_PATH=/usr/lib  taos -s 'select min(ui) from curdb.meters '")
+        os.system("LD_LIBRARY_PATH=/usr/lib  taos -s 'select max(bi) from curdb.meters '")
 
+        os.system(f"LD_LIBRARY_PATH=/usr/lib taos -s 'use test;create stream current_stream into current_stream_output_stb as select _wstart as `start`, _wend as wend, max(current) as max_current from meters where voltage <= 220 interval (5s);' ")
+        os.system('LD_LIBRARY_PATH=/usr/lib taos -s  "use test;create stream power_stream trigger at_once  into power_stream_output_stb as select ts, concat_ws(\\".\\", location, tbname) as meter_location, current*voltage*cos(phase) as active_power, current*voltage*sin(phase) as reactive_power from meters partition by tbname;" ')
+        os.system('LD_LIBRARY_PATH=/usr/lib taos -s  "use test;show streams;" ')
+
+        self.alter_string_in_file("0-others/tmqBasic.json", "/etc/taos/", cPath)
+        # os.system("LD_LIBRARY_PATH=/usr/lib  taosBenchmark -f 0-others/tmqBasic.json -y ")
+        # create db/stb/select topic
+
+        db_topic = "db_test_topic"
+        os.system(f'LD_LIBRARY_PATH=/usr/lib taos -s  "create topic if not exists {db_topic} with meta as database test" ')
+
+        stable_topic = "stable_test_meters_topic"
+        os.system(f'LD_LIBRARY_PATH=/usr/lib taos -s  "create topic if not exists {stable_topic}  as stable test.meters where tbname like \\"d3\\";" ')
+
+        select_topic = "select_test_meters_topic"
+        topic_select_sql = "select current,voltage,phase from test.meters where voltage >= 10;"
+        os.system(f'LD_LIBRARY_PATH=/usr/lib taos -s  "create topic if not exists {select_topic}  as {topic_select_sql}" ')
+
+        os.system('LD_LIBRARY_PATH=/usr/lib taos -s  "use test;show topics;" ')
+        os.system(f"  /usr/bin/taosadapter --version " )        
+        consumer_dict = {
+            "group.id": "g1",
+            "td.connect.websocket.scheme": "ws",
+            "td.connect.user": "root",
+            "td.connect.pass": "taosdata",
+            "auto.offset.reset": "earliest",
+            "enable.auto.commit": "false",
+        }
+
+        consumer = taosws.Consumer(consumer_dict)
+        try:
+            consumer.subscribe([select_topic])
+        except TmqError:
+            tdLog.exit(f"subscribe error")
+        first_consumer_rows = 0
+        while True:
+            message = consumer.poll(timeout=1.0)
+            if message:
+                for block in message:
+                    first_consumer_rows += block.nrows()
+            else:
+                tdLog.notice("message is null and break")
+                break
+            consumer.commit(message)
+            tdLog.debug(f"topic:{select_topic} ,first consumer rows is {first_consumer_rows} in old version")
+            break
+
+        consumer.close()
+        
         tdLog.info(" LD_LIBRARY_PATH=/usr/lib  taosBenchmark -f 0-others/compa4096.json -y  ")
         os.system("LD_LIBRARY_PATH=/usr/lib  taosBenchmark -f 0-others/compa4096.json -y")
-        os.system("LD_LIBRARY_PATH=/usr/lib  taos -s 'flush database db4096 '")
+        os.system("LD_LIBRARY_PATH=/usr/lib  taosBenchmark -f 0-others/all_insertmode_alltypes.json -y")
+
+        # os.system("LD_LIBRARY_PATH=/usr/lib  taos -s 'flush database db4096 '")
         os.system("LD_LIBRARY_PATH=/usr/lib  taos -f 0-others/TS-3131.tsql")
 
         # add deleted  data
@@ -172,9 +262,11 @@ class TDTestCase:
         if os.system(cmd) == 0:
             raise Exception("failed to execute system command. cmd: %s" % cmd)
                 
-        os.system("pkill  taosd")   # make sure all the data are saved in disk.
+        os.system("pkill  -9  taosd")   # make sure all the data are saved in disk.
+        os.system("pkill  -9  taos") 
         self.checkProcessPid("taosd")
-
+        os.system("pkill  -9   taosadapter")   # make sure all the data are saved in disk.
+        self.checkProcessPid("taosadapter")
 
         tdLog.printNoPrefix("==========step2:update new version ")
         self.buildTaosd(bPath)
@@ -183,6 +275,7 @@ class TDTestCase:
         tdsql=tdCom.newTdSql()
         print(tdsql)
         cmd = f" LD_LIBRARY_PATH=/usr/lib  taos -h localhost ;"
+        print(os.system(cmd))
         if os.system(cmd) == 0:
             raise Exception("failed to execute system command. cmd: %s" % cmd)
         
@@ -194,14 +287,33 @@ class TDTestCase:
         tdLog.info(f"New client version is {nowClientVersion}")
 
         tdLog.printNoPrefix(f"==========step3:prepare and check data in new version-{nowServerVersion}")
+        tdsql.query(f"select last(*) from curdb.meters")
+        tdLog.info(tdsql.queryResult)
+        tdsql.query(f"select * from db_all_insert_mode.sml_json")    
+        tdsql.checkRows(16)
+    
+        tdsql.query(f"select * from db_all_insert_mode.sml_line")     
+        tdsql.checkRows(16)   
+        tdsql.query(f"select * from db_all_insert_mode.sml_telnet")  
+        tdsql.checkRows(16)    
+        tdsql.query(f"select * from db_all_insert_mode.rest")    
+        tdsql.checkRows(16)    
+        tdsql.query(f"select * from db_all_insert_mode.stmt")  
+        tdsql.checkRows(16)  
+        tdsql.query(f"select * from db_all_insert_mode.sml_rest_json")    
+        tdsql.checkRows(16)  
+        tdsql.query(f"select * from db_all_insert_mode.sml_rest_line")    
+        tdsql.checkRows(16)      
+        tdsql.query(f"select * from db_all_insert_mode.sml_rest_telnet")    
+        tdsql.checkRows(16)  
+
         tdsql.query(f"select count(*) from {stb}")
-        tdsql.checkData(0,0,tableNumbers*recordNumbers1)
-        # tdsql.query("show streams;")
-        # os.system(f"taosBenchmark -t {tableNumbers} -n {recordNumbers2} -y  ")
-        # tdsql.query("show streams;")
-        # tdsql.query(f"select count(*) from {stb}")
-        # tdsql.checkData(0,0,tableNumbers*recordNumbers2)
+        tdsql.checkData(0,0,tableNumbers*recordNumbers1+20)
+        tdsql.query("show streams;")
+        tdsql.checkRows(2)
         
+
+
         # checkout db4096
         tdsql.query("select count(*) from db4096.stb0")
         tdsql.checkData(0,0,50000)
@@ -251,7 +363,7 @@ class TDTestCase:
 
         # check stream
         tdsql.query("show streams;")
-        tdsql.checkRows(0)
+        tdsql.checkRows(2)
 
         #check TS-3131
         tdsql.query("select *,tbname from d0.almlog where mcid='m0103';")
@@ -265,39 +377,117 @@ class TDTestCase:
             print("The unordered list is the same as the ordered list.")
         else:
             tdLog.exit("The unordered list is not the same as the ordered list.")
-        tdsql.execute("insert into test.d80 values (now+1s, 11, 103, 0.21);")
-        tdsql.execute("insert into test.d9 values (now+5s, 4.3, 104, 0.4);")
 
+
+        # check database test and last
+        # first check
+        
+        tdsql.query(f"select last(*) from test.meters group by tbname")
+        tdLog.info(tdsql.queryResult)
+        # tdsql.checkRows(tableNumbers)
+        
+        tdsql.query(f"select last_row(*) from test.meters group by tbname")
+        tdLog.info(tdsql.queryResult)
+        # tdsql.checkRows(tableNumbers)
+
+        tdsql.query(f"select last_row(*) from test.meters partition by tbname")
+        tdLog.info(tdsql.queryResult)
+        # tdsql.checkRows(tableNumbers)
+        
+        tdsql.query(f"select last(*) from test.meters")
+        tdLog.info(tdsql.queryResult)
+        tdsql.checkData(0,0,"2033-07-14 08:39:59.000")
+        tdsql.checkData(0,1,119) 
+        tdsql.checkData(0,2,191)
+        tdsql.checkData(0,3,0.25)
+        
+        tdsql.query(f"select last_row(*) from test.meters")
+        tdLog.info(tdsql.queryResult)
+        tdsql.checkData(0,0,"2033-07-14 08:39:59.000")
+        tdsql.checkData(0,1,119) 
+        tdsql.checkData(0,2,191)
+        tdsql.checkData(0,3,0.25)
+
+        tdsql.query(f"select last(*) from test.d1")
+        tdLog.info(tdsql.queryResult)       
+        tdsql.checkData(0,0,"2032-08-14 08:39:59.001")
+        tdsql.checkData(0,1,11) 
+        tdsql.checkData(0,2,190)
+        tdsql.checkData(0,3,0.21)      
+
+        # update data and check
+        tdsql.execute("insert into test.d2 values ('2033-07-14 08:39:59.002', 139, 182, 1.10) (now+2s, 12, 191, 0.22) test.d2  (ts) values ('2033-07-14 08:39:59.003');")
+        tdsql.execute("insert into test.d2 values (now+5s, 4.3, 104, 0.4);")
+
+        tdsql.query(f"select last(*) from test.meters")
+        tdLog.info(tdsql.queryResult)
+        tdsql.checkData(0,0,"2033-07-14 08:39:59.003")
+        tdsql.checkData(0,1,139) 
+        tdsql.checkData(0,2,182)
+        tdsql.checkData(0,3,1.10)
+
+        # repeately insert data and check
+        tdsql.execute("insert into test.d1 values (now+1s, 11, 190, 0.21) (now+2s, 12, 191, 0.22) ('2033-07-14 08:40:01.001', 16, 180, 0.53);")
+
+        tdsql.query(f"select last(*) from test.d1")
+        tdLog.info(tdsql.queryResult)
+        tdsql.checkData(0,0,"2033-07-14 08:40:01.001")
+        tdsql.checkData(0,1,16)
+        tdsql.checkData(0,2,180)
+        tdsql.checkData(0,3,0.53)
+        
+        tdsql.query(f"select last(*) from test.meters")
+        tdLog.info(tdsql.queryResult)
+        tdsql.checkData(0,0,"2033-07-14 08:40:01.001")
+        tdsql.checkData(0,1,16)
+        tdsql.checkData(0,2,180)
+        tdsql.checkData(0,3,0.53)
+
+        tdsql.query(f"select last_row(*) from test.meters")
+        tdLog.info(tdsql.queryResult)
+        tdsql.checkData(0,0,"2033-07-14 08:40:01.001")
+        tdsql.checkData(0,1,16)
+        tdsql.checkData(0,2,180)
+        tdsql.checkData(0,3,0.53)
 
         # check tmq
         conn = taos.connect()
 
         consumer = Consumer(
             {
-                "group.id": "tg75",
-                "client.id": "124",
+                "group.id": "g1",
                 "td.connect.user": "root",
                 "td.connect.pass": "taosdata",
                 "enable.auto.commit": "true",
                 "experimental.snapshot.enable":  "true",
             }
         )
-        consumer.subscribe(["tmq_test_topic"])
-
+        consumer.subscribe([select_topic])
+        consumer_rows = 0
         while True:
-            res = consumer.poll(10)
-            if not res:
+            message = consumer.poll(timeout=1.0)
+            tdLog.info(f" null {message}")
+            if message:
+                for block in message:
+                    consumer_rows += block.nrows()
+                tdLog.info(f"consumer rows is {consumer_rows}")
+            else:
+                print("consumer has completed and break")
                 break
-            err = res.error()
-            if err is not None:
-                raise err
-            val = res.value()
-
-            for block in val:
-                print(block.fetchall())
+        consumer.close()
+        tdsql.query(f"{topic_select_sql}")
+        all_rows = tdsql.queryRows
+        if consumer_rows < all_rows - first_consumer_rows :
+            tdLog.exit(f"consumer rows is {consumer_rows}, less than {all_rows - first_consumer_rows}")
         tdsql.query("show topics;")
-        tdsql.checkRows(1)
+        tdsql.checkRows(3)
+        tdsql.execute(f"drop topic {select_topic};",queryTimes=10)
+        tdsql.execute(f"drop topic {db_topic};",queryTimes=10)
+        tdsql.execute(f"drop topic {stable_topic};",queryTimes=10)
 
+        os.system(f" LD_LIBRARY_PATH={bPath}/build/lib  {bPath}/build/bin/taosBenchmark -t {tableNumbers} -n {recordNumbers2} -y  ")
+        tdsql.query(f"select count(*) from {stb}")
+        tdsql.checkData(0,0,tableNumbers*recordNumbers2)
 
     def stop(self):
         tdSql.close()

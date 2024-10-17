@@ -15,11 +15,12 @@
 
 #include "tsdbMerge.h"
 
-#define TSDB_MAX_LEVEL 6  // means max level is 7
+#define TSDB_MAX_LEVEL 2  // means max level is 3
 
 typedef struct {
-  STsdb         *tsdb;
-  TFileSetArray *fsetArr;
+  STsdb     *tsdb;
+  int32_t    fid;
+  STFileSet *fset;
 
   int32_t sttTrigger;
   int32_t maxRow;
@@ -65,28 +66,19 @@ static int32_t tsdbMergerOpen(SMerger *merger) {
 }
 
 static int32_t tsdbMergerClose(SMerger *merger) {
-  int32_t code = 0;
   int32_t lino = 0;
   SVnode *pVnode = merger->tsdb->pVnode;
-
-  ASSERT(merger->writer == NULL);
-  ASSERT(merger->dataIterMerger == NULL);
-  ASSERT(merger->tombIterMerger == NULL);
-  ASSERT(TARRAY2_SIZE(merger->dataIterArr) == 0);
-  ASSERT(TARRAY2_SIZE(merger->tombIterArr) == 0);
-  ASSERT(TARRAY2_SIZE(merger->sttReaderArr) == 0);
 
   // clear the merge
   TARRAY2_DESTROY(merger->tombIterArr, NULL);
   TARRAY2_DESTROY(merger->dataIterArr, NULL);
   TARRAY2_DESTROY(merger->sttReaderArr, NULL);
   TARRAY2_DESTROY(merger->fopArr, NULL);
+  return 0;
+}
 
-_exit:
-  if (code) {
-    TSDB_ERROR_LOG(TD_VID(pVnode), lino, code);
-  }
-  return code;
+static void tsdbMergeFileSetEndCloseReader(SMerger *merger) {
+  TARRAY2_CLEAR(merger->sttReaderArr, tsdbSttFileReaderClose);
 }
 
 static int32_t tsdbMergeFileSetBeginOpenReader(SMerger *merger) {
@@ -120,8 +112,7 @@ static int32_t tsdbMergeFileSetBeginOpenReader(SMerger *merger) {
             .fid = merger->ctx->fset->fid,
             .of = fobj->f[0],
         };
-        code = TARRAY2_APPEND(merger->fopArr, op);
-        TSDB_CHECK_CODE(code, lino, _exit);
+        TAOS_CHECK_GOTO(TARRAY2_APPEND(merger->fopArr, op), &lino, _exit);
 
         SSttFileReader      *reader;
         SSttFileReaderConfig config = {
@@ -130,11 +121,9 @@ static int32_t tsdbMergeFileSetBeginOpenReader(SMerger *merger) {
             .file[0] = fobj->f[0],
         };
 
-        code = tsdbSttFileReaderOpen(fobj->fname, &config, &reader);
-        TSDB_CHECK_CODE(code, lino, _exit);
+        TAOS_CHECK_GOTO(tsdbSttFileReaderOpen(fobj->fname, &config, &reader), &lino, _exit);
 
-        code = TARRAY2_APPEND(merger->sttReaderArr, reader);
-        TSDB_CHECK_CODE(code, lino, _exit);
+        TAOS_CHECK_GOTO(TARRAY2_APPEND(merger->sttReaderArr, reader), &lino, _exit);
       }
     }
   } else {
@@ -159,8 +148,6 @@ static int32_t tsdbMergeFileSetBeginOpenReader(SMerger *merger) {
       }
     }
 
-    ASSERT(merger->ctx->level > 0);
-
     if (merger->ctx->level <= TSDB_MAX_LEVEL) {
       TARRAY2_FOREACH_REVERSE(merger->ctx->fset->lvlArr, lvl) {
         if (TARRAY2_SIZE(lvl->fobjArr) == 0) {
@@ -183,8 +170,6 @@ static int32_t tsdbMergeFileSetBeginOpenReader(SMerger *merger) {
       numFile = numFile - TARRAY2_SIZE(lvl->fobjArr) * pow(merger->sttTrigger, lvl->level);
     }
 
-    ASSERT(numFile >= 0);
-
     // get file system operations
     TARRAY2_FOREACH(merger->ctx->fset->lvlArr, lvl) {
       if (lvl->level >= merger->ctx->level) {
@@ -206,8 +191,7 @@ static int32_t tsdbMergeFileSetBeginOpenReader(SMerger *merger) {
             .fid = merger->ctx->fset->fid,
             .of = fobj->f[0],
         };
-        code = TARRAY2_APPEND(merger->fopArr, op);
-        TSDB_CHECK_CODE(code, lino, _exit);
+        TAOS_CHECK_GOTO(TARRAY2_APPEND(merger->fopArr, op), &lino, _exit);
 
         SSttFileReader      *reader;
         SSttFileReaderConfig config = {
@@ -216,11 +200,12 @@ static int32_t tsdbMergeFileSetBeginOpenReader(SMerger *merger) {
             .file[0] = fobj->f[0],
         };
 
-        code = tsdbSttFileReaderOpen(fobj->fname, &config, &reader);
-        TSDB_CHECK_CODE(code, lino, _exit);
+        TAOS_CHECK_GOTO(tsdbSttFileReaderOpen(fobj->fname, &config, &reader), &lino, _exit);
 
-        code = TARRAY2_APPEND(merger->sttReaderArr, reader);
-        TSDB_CHECK_CODE(code, lino, _exit);
+        if ((code = TARRAY2_APPEND(merger->sttReaderArr, reader))) {
+          tsdbSttFileReaderClose(&reader);
+          TSDB_CHECK_CODE(code, lino, _exit);
+        }
       }
     }
 
@@ -231,7 +216,9 @@ static int32_t tsdbMergeFileSetBeginOpenReader(SMerger *merger) {
 
 _exit:
   if (code) {
-    TSDB_ERROR_LOG(TD_VID(merger->tsdb->pVnode), lino, code);
+    tsdbError("vgId:%d %s failed at %s:%d since %s", TD_VID(merger->tsdb->pVnode), __func__, __FILE__, lino,
+              tstrerror(code));
+    tsdbMergeFileSetEndCloseReader(merger);
   }
   return code;
 }
@@ -250,32 +237,25 @@ static int32_t tsdbMergeFileSetBeginOpenIter(SMerger *merger) {
     config.type = TSDB_ITER_TYPE_STT;
     config.sttReader = sttReader;
 
-    code = tsdbIterOpen(&config, &iter);
-    TSDB_CHECK_CODE(code, lino, _exit);
-
-    code = TARRAY2_APPEND(merger->dataIterArr, iter);
-    TSDB_CHECK_CODE(code, lino, _exit);
+    TAOS_CHECK_GOTO(tsdbIterOpen(&config, &iter), &lino, _exit);
+    TAOS_CHECK_GOTO(TARRAY2_APPEND(merger->dataIterArr, iter), &lino, _exit);
 
     // tomb iter
     config.type = TSDB_ITER_TYPE_STT_TOMB;
     config.sttReader = sttReader;
 
-    code = tsdbIterOpen(&config, &iter);
-    TSDB_CHECK_CODE(code, lino, _exit);
+    TAOS_CHECK_GOTO(tsdbIterOpen(&config, &iter), &lino, _exit);
 
-    code = TARRAY2_APPEND(merger->tombIterArr, iter);
-    TSDB_CHECK_CODE(code, lino, _exit);
+    TAOS_CHECK_GOTO(TARRAY2_APPEND(merger->tombIterArr, iter), &lino, _exit);
   }
 
-  code = tsdbIterMergerOpen(merger->dataIterArr, &merger->dataIterMerger, false);
-  TSDB_CHECK_CODE(code, lino, _exit);
+  TAOS_CHECK_GOTO(tsdbIterMergerOpen(merger->dataIterArr, &merger->dataIterMerger, false), &lino, _exit);
 
-  code = tsdbIterMergerOpen(merger->tombIterArr, &merger->tombIterMerger, true);
-  TSDB_CHECK_CODE(code, lino, _exit);
+  TAOS_CHECK_GOTO(tsdbIterMergerOpen(merger->tombIterArr, &merger->tombIterMerger, true), &lino, _exit);
 
 _exit:
   if (code) {
-    TSDB_ERROR_LOG(vid, lino, code);
+    tsdbError("vgId:%d %s failed at %s:%d since %s", vid, __func__, __FILE__, lino, tstrerror(code));
   }
   return code;
 }
@@ -287,11 +267,12 @@ static int32_t tsdbMergeFileSetBeginOpenWriter(SMerger *merger) {
 
   SDiskID did;
   int32_t level = tsdbFidLevel(merger->ctx->fset->fid, &merger->tsdb->keepCfg, merger->ctx->now);
-  if (tfsAllocDisk(merger->tsdb->pVnode->pTfs, level, &did) < 0) {
-    code = TSDB_CODE_FS_NO_VALID_DISK;
-    TSDB_CHECK_CODE(code, lino, _exit);
-  }
-  tfsMkdirRecurAt(merger->tsdb->pVnode->pTfs, merger->tsdb->path, did);
+
+  TAOS_CHECK_GOTO(tfsAllocDisk(merger->tsdb->pVnode->pTfs, level, &did), &lino, _exit);
+
+  code = tfsMkdirRecurAt(merger->tsdb->pVnode->pTfs, merger->tsdb->path, did);
+  TSDB_CHECK_CODE(code, lino, _exit);
+
   SFSetWriterConfig config = {
       .tsdb = merger->tsdb,
       .toSttOnly = true,
@@ -319,12 +300,11 @@ static int32_t tsdbMergeFileSetBeginOpenWriter(SMerger *merger) {
     }
   }
 
-  code = tsdbFSetWriterOpen(&config, &merger->writer);
-  TSDB_CHECK_CODE(code, lino, _exit);
+  TAOS_CHECK_GOTO(tsdbFSetWriterOpen(&config, &merger->writer), &lino, _exit);
 
 _exit:
   if (code) {
-    TSDB_ERROR_LOG(vid, lino, code);
+    tsdbError("vgId:%d %s failed at %s:%d since %s", vid, __func__, __FILE__, lino, tstrerror(code));
   }
   return code;
 }
@@ -333,31 +313,24 @@ static int32_t tsdbMergeFileSetBegin(SMerger *merger) {
   int32_t code = 0;
   int32_t lino = 0;
 
-  ASSERT(TARRAY2_SIZE(merger->sttReaderArr) == 0);
-  ASSERT(TARRAY2_SIZE(merger->dataIterArr) == 0);
-  ASSERT(merger->dataIterMerger == NULL);
-  ASSERT(merger->writer == NULL);
-
   TARRAY2_CLEAR(merger->fopArr, NULL);
 
   merger->ctx->tbid->suid = 0;
   merger->ctx->tbid->uid = 0;
 
   // open reader
-  code = tsdbMergeFileSetBeginOpenReader(merger);
-  TSDB_CHECK_CODE(code, lino, _exit);
+  TAOS_CHECK_GOTO(tsdbMergeFileSetBeginOpenReader(merger), &lino, _exit);
 
   // open iterator
-  code = tsdbMergeFileSetBeginOpenIter(merger);
-  TSDB_CHECK_CODE(code, lino, _exit);
+  TAOS_CHECK_GOTO(tsdbMergeFileSetBeginOpenIter(merger), &lino, _exit);
 
   // open writer
-  code = tsdbMergeFileSetBeginOpenWriter(merger);
-  TSDB_CHECK_CODE(code, lino, _exit);
+  TAOS_CHECK_GOTO(tsdbMergeFileSetBeginOpenWriter(merger), &lino, _exit);
 
 _exit:
   if (code) {
-    TSDB_ERROR_LOG(TD_VID(merger->tsdb->pVnode), lino, code);
+    tsdbError("vgId:%d %s failed at %s:%d since %s", TD_VID(merger->tsdb->pVnode), __func__, __FILE__, lino,
+              tstrerror(code));
   }
   return code;
 }
@@ -374,38 +347,31 @@ static int32_t tsdbMergeFileSetEndCloseIter(SMerger *merger) {
   return 0;
 }
 
-static int32_t tsdbMergeFileSetEndCloseReader(SMerger *merger) {
-  TARRAY2_CLEAR(merger->sttReaderArr, tsdbSttFileReaderClose);
-  return 0;
-}
-
 static int32_t tsdbMergeFileSetEnd(SMerger *merger) {
   int32_t code = 0;
   int32_t lino = 0;
 
-  code = tsdbMergeFileSetEndCloseWriter(merger);
-  TSDB_CHECK_CODE(code, lino, _exit);
+  TAOS_CHECK_GOTO(tsdbMergeFileSetEndCloseWriter(merger), &lino, _exit);
 
-  code = tsdbMergeFileSetEndCloseIter(merger);
-  TSDB_CHECK_CODE(code, lino, _exit);
+  TAOS_CHECK_GOTO(tsdbMergeFileSetEndCloseIter(merger), &lino, _exit);
 
-  code = tsdbMergeFileSetEndCloseReader(merger);
-  TSDB_CHECK_CODE(code, lino, _exit);
+  tsdbMergeFileSetEndCloseReader(merger);
 
   // edit file system
-  code = tsdbFSEditBegin(merger->tsdb->pFS, merger->fopArr, TSDB_FEDIT_MERGE);
-  TSDB_CHECK_CODE(code, lino, _exit);
+  TAOS_CHECK_GOTO(tsdbFSEditBegin(merger->tsdb->pFS, merger->fopArr, TSDB_FEDIT_MERGE), &lino, _exit);
 
-  taosThreadRwlockWrlock(&merger->tsdb->rwLock);
+  (void)taosThreadMutexLock(&merger->tsdb->mutex);
   code = tsdbFSEditCommit(merger->tsdb->pFS);
   if (code) {
-    taosThreadRwlockUnlock(&merger->tsdb->rwLock);
+    (void)taosThreadMutexUnlock(&merger->tsdb->mutex);
     TSDB_CHECK_CODE(code, lino, _exit);
   }
-  taosThreadRwlockUnlock(&merger->tsdb->rwLock);
+  (void)taosThreadMutexUnlock(&merger->tsdb->mutex);
 
 _exit:
   if (code) {
+    tsdbError("vgId:%d %s failed at %s:%d since %s", TD_VID(merger->tsdb->pVnode), __func__, __FILE__, lino,
+              tstrerror(code));
     TSDB_ERROR_LOG(TD_VID(merger->tsdb->pVnode), lino, code);
   }
   return code;
@@ -416,8 +382,7 @@ static int32_t tsdbMergeFileSet(SMerger *merger, STFileSet *fset) {
   int32_t lino = 0;
 
   merger->ctx->fset = fset;
-  code = tsdbMergeFileSetBegin(merger);
-  TSDB_CHECK_CODE(code, lino, _exit);
+  TAOS_CHECK_GOTO(tsdbMergeFileSetBegin(merger), &lino, _exit);
 
   // data
   SMetaInfo info;
@@ -430,17 +395,14 @@ static int32_t tsdbMergeFileSet(SMerger *merger, STFileSet *fset) {
       merger->ctx->tbid->suid = row->suid;
 
       if (metaGetInfo(merger->tsdb->pVnode->pMeta, row->uid, &info, NULL) != 0) {
-        code = tsdbIterMergerSkipTableData(merger->dataIterMerger, merger->ctx->tbid);
-        TSDB_CHECK_CODE(code, lino, _exit);
+        TAOS_CHECK_GOTO(tsdbIterMergerSkipTableData(merger->dataIterMerger, merger->ctx->tbid), &lino, _exit);
         continue;
       }
     }
 
-    code = tsdbFSetWriteRow(merger->writer, row);
-    TSDB_CHECK_CODE(code, lino, _exit);
+    TAOS_CHECK_GOTO(tsdbFSetWriteRow(merger->writer, row), &lino, _exit);
 
-    code = tsdbIterMergerNext(merger->dataIterMerger);
-    TSDB_CHECK_CODE(code, lino, _exit);
+    TAOS_CHECK_GOTO(tsdbIterMergerNext(merger->dataIterMerger), &lino, _exit);
   }
 
   // tomb
@@ -452,24 +414,21 @@ static int32_t tsdbMergeFileSet(SMerger *merger, STFileSet *fset) {
       merger->ctx->tbid->suid = record->suid;
 
       if (metaGetInfo(merger->tsdb->pVnode->pMeta, record->uid, &info, NULL) != 0) {
-        code = tsdbIterMergerSkipTableData(merger->tombIterMerger, merger->ctx->tbid);
-        TSDB_CHECK_CODE(code, lino, _exit);
+        TAOS_CHECK_GOTO(tsdbIterMergerSkipTableData(merger->tombIterMerger, merger->ctx->tbid), &lino, _exit);
         continue;
       }
     }
-    code = tsdbFSetWriteTombRecord(merger->writer, record);
-    TSDB_CHECK_CODE(code, lino, _exit);
+    TAOS_CHECK_GOTO(tsdbFSetWriteTombRecord(merger->writer, record), &lino, _exit);
 
-    code = tsdbIterMergerNext(merger->tombIterMerger);
-    TSDB_CHECK_CODE(code, lino, _exit);
+    TAOS_CHECK_GOTO(tsdbIterMergerNext(merger->tombIterMerger), &lino, _exit);
   }
 
-  code = tsdbMergeFileSetEnd(merger);
-  TSDB_CHECK_CODE(code, lino, _exit);
+  TAOS_CHECK_GOTO(tsdbMergeFileSetEnd(merger), &lino, _exit);
 
 _exit:
   if (code) {
-    tsdbError("vgId:%d %s failed at line %d since %s", TD_VID(merger->tsdb->pVnode), __func__, lino, tstrerror(code));
+    tsdbError("vgId:%d %s failed at %s:%d since %s", TD_VID(merger->tsdb->pVnode), __func__, __FILE__, lino,
+              tstrerror(code));
   } else {
     tsdbDebug("vgId:%d %s done, fid:%d", TD_VID(merger->tsdb->pVnode), __func__, fset->fid);
   }
@@ -480,67 +439,83 @@ static int32_t tsdbDoMerge(SMerger *merger) {
   int32_t code = 0;
   int32_t lino = 0;
 
-  STFileSet *fset;
-  TARRAY2_FOREACH(merger->fsetArr, fset) {
-    if (TARRAY2_SIZE(fset->lvlArr) == 0) continue;
+  if (TARRAY2_SIZE(merger->fset->lvlArr) == 0) return 0;
 
-    SSttLvl *lvl = TARRAY2_FIRST(fset->lvlArr);
-
-    if (lvl->level != 0 || TARRAY2_SIZE(lvl->fobjArr) < merger->sttTrigger) continue;
-
-    if (!merger->ctx->opened) {
-      code = tsdbMergerOpen(merger);
-      TSDB_CHECK_CODE(code, lino, _exit);
-    }
-
-    code = tsdbMergeFileSet(merger, fset);
-    TSDB_CHECK_CODE(code, lino, _exit);
+  SSttLvl *lvl = TARRAY2_FIRST(merger->fset->lvlArr);
+  if (lvl->level != 0 || TARRAY2_SIZE(lvl->fobjArr) < merger->sttTrigger) {
+    return 0;
   }
 
-  if (merger->ctx->opened) {
-    code = tsdbMergerClose(merger);
-    TSDB_CHECK_CODE(code, lino, _exit);
-  }
+  TAOS_CHECK_GOTO(tsdbMergerOpen(merger), &lino, _exit);
+  TAOS_CHECK_GOTO(tsdbMergeFileSet(merger, merger->fset), &lino, _exit);
+  TAOS_CHECK_GOTO(tsdbMergerClose(merger), &lino, _exit);
 
 _exit:
   if (code) {
-    TSDB_ERROR_LOG(TD_VID(merger->tsdb->pVnode), lino, code);
+    tsdbError("vgId:%d %s failed at %s:%d since %s", TD_VID(merger->tsdb->pVnode), __func__, __FILE__, lino,
+              tstrerror(code));
   } else {
     tsdbDebug("vgId:%d %s done", TD_VID(merger->tsdb->pVnode), __func__);
   }
   return code;
 }
 
-int32_t tsdbMerge(void *arg) {
-  int32_t code = 0;
-  int32_t lino = 0;
-  STsdb  *tsdb = (STsdb *)arg;
+static int32_t tsdbMergeGetFSet(SMerger *merger) {
+  STFileSet *fset;
 
-  SMerger merger[1] = {{
-      .tsdb = tsdb,
-      .sttTrigger = tsdb->pVnode->config.sttTrigger,
-  }};
-
-  if (merger->sttTrigger <= 1) {
+  (void)taosThreadMutexLock(&merger->tsdb->mutex);
+  tsdbFSGetFSet(merger->tsdb->pFS, merger->fid, &fset);
+  if (fset == NULL) {
+    (void)taosThreadMutexUnlock(&merger->tsdb->mutex);
     return 0;
   }
 
-  code = tsdbFSCreateCopySnapshot(tsdb->pFS, &merger->fsetArr);
-  TSDB_CHECK_CODE(code, lino, _exit);
+  fset->mergeScheduled = false;
 
+  int32_t code = tsdbTFileSetInitCopy(merger->tsdb, fset, &merger->fset);
+  if (code) {
+    (void)taosThreadMutexUnlock(&merger->tsdb->mutex);
+    return code;
+  }
+  (void)taosThreadMutexUnlock(&merger->tsdb->mutex);
+  return 0;
+}
+
+int32_t tsdbMerge(void *arg) {
+  int32_t    code = 0;
+  int32_t    lino = 0;
+  SMergeArg *mergeArg = (SMergeArg *)arg;
+  STsdb     *tsdb = mergeArg->tsdb;
+
+  SMerger merger[1] = {{
+      .tsdb = tsdb,
+      .fid = mergeArg->fid,
+      .sttTrigger = tsdb->pVnode->config.sttTrigger,
+  }};
+
+  if (merger->sttTrigger <= 1) return 0;
+
+  // copy snapshot
+  TAOS_CHECK_GOTO(tsdbMergeGetFSet(merger), &lino, _exit);
+
+  if (merger->fset == NULL) {
+    return 0;
+  }
+
+  // do merge
+  tsdbInfo("vgId:%d merge begin, fid:%d", TD_VID(tsdb->pVnode), merger->fid);
   code = tsdbDoMerge(merger);
+  tsdbInfo("vgId:%d merge done, fid:%d", TD_VID(tsdb->pVnode), mergeArg->fid);
   TSDB_CHECK_CODE(code, lino, _exit);
-
-  tsdbFSDestroyCopySnapshot(&merger->fsetArr);
 
 _exit:
   if (code) {
-    TSDB_ERROR_LOG(TD_VID(tsdb->pVnode), lino, code);
+    tsdbError("vgId:%d %s failed at %s:%d since %s", TD_VID(tsdb->pVnode), __func__, __FILE__, lino, tstrerror(code));
     tsdbFatal("vgId:%d, failed to merge stt files since %s. code:%d", TD_VID(tsdb->pVnode), terrstr(), code);
     taosMsleep(100);
     exit(EXIT_FAILURE);
-  } else if (merger->ctx->opened) {
-    tsdbDebug("vgId:%d %s done", TD_VID(tsdb->pVnode), __func__);
   }
+  tsdbTFileSetClear(&merger->fset);
+  taosMemoryFree(arg);
   return code;
 }

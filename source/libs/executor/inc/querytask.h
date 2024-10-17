@@ -58,13 +58,12 @@ typedef struct STaskStopInfo {
 
 typedef struct {
   STqOffsetVal         currentOffset;  // for tmq
-  SMqMetaRsp           metaRsp;        // for tmq fetching meta
+  SMqBatchMetaRsp      btMetaRsp;      // for tmq fetching meta
+  int8_t               sourceExcluded;
   int64_t              snapshotVer;
   SSchemaWrapper*      schema;
   char                 tbName[TSDB_TABLE_NAME_LEN];  // this is the current scan table: todo refactor
   int8_t               recoverStep;
-//  bool                 recoverStep1Finished;
-//  bool                 recoverStep2Finished;
   int8_t               recoverScanFinished;
   SQueryTableDataCond  tableCond;
   SVersionRange        fillHistoryVer;
@@ -83,7 +82,6 @@ struct SExecTaskInfo {
   int64_t               version;    // used for stream to record wal version, why not move to sschemainfo
   SStreamTaskInfo       streamInfo;
   SArray*               schemaInfos;
-  SSchemaInfo           schemaInfo;
   const char*           sql;        // query sql string
   jmp_buf               env;        // jump to this position when error happens.
   EOPTR_EXEC_MODEL      execModel;  // operator execution model [batch model|stream model]
@@ -97,18 +95,20 @@ struct SExecTaskInfo {
   int8_t                dynamicTask;
   SOperatorParam*       pOpParam;
   bool                  paramSet;
+  SQueryAutoQWorkerPoolCB* pWorkerCb;
 };
 
-void           buildTaskId(uint64_t taskId, uint64_t queryId, char* dst);
-SExecTaskInfo* doCreateTask(uint64_t queryId, uint64_t taskId, int32_t vgId, EOPTR_EXEC_MODEL model, SStorageAPI* pAPI);
-void           doDestroyTask(SExecTaskInfo* pTaskInfo);
-bool           isTaskKilled(void* pTaskInfo);
-void           setTaskKilled(SExecTaskInfo* pTaskInfo, int32_t rspCode);
-void           setTaskStatus(SExecTaskInfo* pTaskInfo, int8_t status);
-int32_t        createExecTaskInfo(SSubplan* pPlan, SExecTaskInfo** pTaskInfo, SReadHandle* pHandle, uint64_t taskId,
-                                  int32_t vgId, char* sql, EOPTR_EXEC_MODEL model);
-int32_t        qAppendTaskStopInfo(SExecTaskInfo* pTaskInfo, SExchangeOpStopInfo* pInfo);
-SArray*        getTableListInfo(const SExecTaskInfo* pTaskInfo);
+void    buildTaskId(uint64_t taskId, uint64_t queryId, char* dst);
+int32_t doCreateTask(uint64_t queryId, uint64_t taskId, int32_t vgId, EOPTR_EXEC_MODEL model, SStorageAPI* pAPI,
+                     SExecTaskInfo** pTaskInfo);
+void    doDestroyTask(SExecTaskInfo* pTaskInfo);
+bool    isTaskKilled(void* pTaskInfo);
+void    setTaskKilled(SExecTaskInfo* pTaskInfo, int32_t rspCode);
+void    setTaskStatus(SExecTaskInfo* pTaskInfo, int8_t status);
+int32_t createExecTaskInfo(SSubplan* pPlan, SExecTaskInfo** pTaskInfo, SReadHandle* pHandle, uint64_t taskId,
+                           int32_t vgId, char* sql, EOPTR_EXEC_MODEL model);
+int32_t qAppendTaskStopInfo(SExecTaskInfo* pTaskInfo, SExchangeOpStopInfo* pInfo);
+int32_t getTableListInfo(const SExecTaskInfo* pTaskInfo, SArray** pList);
 
 #ifdef __cplusplus
 }

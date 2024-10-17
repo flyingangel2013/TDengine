@@ -44,7 +44,7 @@ def checkRunTimeError():
         time.sleep(1)
         timeCount = timeCount + 1
         print("checkRunTimeError",timeCount)
-        if (timeCount>600):
+        if (timeCount>1200):
             print("stop the test.")
             os.system("TASKKILL /F /IM taosd.exe")
             os.system("TASKKILL /F /IM taos.exe")
@@ -386,6 +386,7 @@ if __name__ == "__main__":
                     if res[i][0] == "queryPolicy" :
                         if int(res[i][1]) == int(queryPolicy):
                             tdLog.info(f'alter queryPolicy to {queryPolicy} successfully')
+                            cursor.close()
                         else:
                             tdLog.debug(res)
                             tdLog.exit(f"alter queryPolicy to  {queryPolicy} failed")
@@ -443,6 +444,7 @@ if __name__ == "__main__":
                     if res[i][0] == "queryPolicy" :
                         if int(res[i][1]) == int(queryPolicy):
                             tdLog.info(f'alter queryPolicy to {queryPolicy} successfully')
+                            cursor.close()
                         else:
                             tdLog.debug(res)
                             tdLog.exit(f"alter queryPolicy to  {queryPolicy} failed")
@@ -566,6 +568,7 @@ if __name__ == "__main__":
                     if res[i][0] == "queryPolicy" :
                         if int(res[i][1]) == int(queryPolicy):
                             tdLog.info(f'alter queryPolicy to {queryPolicy} successfully')
+                            cursor.close()
                         else:
                             tdLog.debug(res)
                             tdLog.exit(f"alter queryPolicy to  {queryPolicy} failed")
@@ -582,7 +585,7 @@ if __name__ == "__main__":
             tdDnodes.setAsan(asan)
             tdDnodes.stopAll()
             for dnode in tdDnodes.dnodes:
-                tdDnodes.deploy(dnode.index,{})
+                tdDnodes.deploy(dnode.index,updateCfgDict)
             for dnode in tdDnodes.dnodes:
                 tdDnodes.starttaosd(dnode.index)
             tdCases.logSql(logSql)
@@ -631,6 +634,7 @@ if __name__ == "__main__":
                     if res[i][0] == "queryPolicy" :
                         if int(res[i][1]) == int(queryPolicy):
                             tdLog.info(f'alter queryPolicy to {queryPolicy} successfully')
+                            cursor.close()
                         else:
                             tdLog.debug(res)
                             tdLog.exit(f"alter queryPolicy to  {queryPolicy} failed")
@@ -683,6 +687,6 @@ if __name__ == "__main__":
     if conn is not None:
         conn.close()
     if asan:
-        tdDnodes.StopAllSigint()
+        # tdDnodes.StopAllSigint()
         tdLog.info("Address sanitizer mode finished")
     sys.exit(0)

@@ -28,8 +28,6 @@ extern "C" {
 #include "tudf.h"
 #include "tvariant.h"
 
-bool topbot_datablock_filter(SqlFunctionCtx *pCtx, const char *minval, const char *maxval);
-
 /**
  * the numOfRes should be kept, since it may be used later
  * and allow the ResultInfo to be re initialized
@@ -39,7 +37,7 @@ static FORCE_INLINE void initResultRowEntry(SResultRowEntryInfo *pResInfo, int32
 
   pResInfo->complete = false;
   pResInfo->numOfRes = 0;
-  memset(GET_ROWCELL_INTERBUF(pResInfo), 0, bufLen);
+  (void)memset(GET_ROWCELL_INTERBUF(pResInfo), 0, bufLen);
 }
 
 #ifdef __cplusplus

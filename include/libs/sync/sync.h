@@ -33,11 +33,11 @@ extern "C" {
 #define SYNC_MAX_PROGRESS_WAIT_MS    4000
 #define SYNC_MAX_START_TIME_RANGE_MS (1000 * 20)
 #define SYNC_MAX_RECV_TIME_RANGE_MS  1200
-#define SYNC_DEL_WAL_MS              (1000 * 60)
 #define SYNC_ADD_QUORUM_COUNT        3
 #define SYNC_VNODE_LOG_RETENTION     (TSDB_SYNC_LOG_BUFFER_RETENTION + 1)
-#define SNAPSHOT_MAX_CLOCK_SKEW_MS   1000 * 10
-#define SNAPSHOT_WAIT_MS             1000 * 30
+#define SNAPSHOT_WAIT_MS             1000 * 5
+
+#define SYNC_WAL_LOG_RETENTION_SIZE (8LL * 1024 * 1024 * 1024)
 
 #define SYNC_MAX_RETRY_BACKOFF         5
 #define SYNC_LOG_REPL_RETRY_WAIT_MS    100
@@ -47,6 +47,7 @@ extern "C" {
 #define SYNC_HEARTBEAT_SLOW_MS       1500
 #define SYNC_HEARTBEAT_REPLY_SLOW_MS 1500
 #define SYNC_SNAP_RESEND_MS          1000 * 60
+#define SYNC_SNAP_TIMEOUT_MS         1000 * 300
 
 #define SYNC_VND_COMMIT_MIN_MS 3000
 
@@ -69,7 +70,6 @@ typedef int64_t  SyncIndex;
 typedef int64_t  SyncTerm;
 
 typedef struct SSyncNode      SSyncNode;
-typedef struct SWal           SWal;
 typedef struct SSyncRaftEntry SSyncRaftEntry;
 
 typedef enum {
@@ -79,6 +79,7 @@ typedef enum {
   TAOS_SYNC_STATE_LEADER = 102,
   TAOS_SYNC_STATE_ERROR = 103,
   TAOS_SYNC_STATE_LEARNER = 104,
+  TAOS_SYNC_STATE_ASSIGNED_LEADER = 105,
 } ESyncState;
 
 typedef enum {
@@ -87,6 +88,11 @@ typedef enum {
   TAOS_SYNC_ROLE_ERROR = 2,
 } ESyncRole;
 
+typedef enum {
+  SYNC_FSM_STATE_COMPLETE = 0,
+  SYNC_FSM_STATE_INCOMPLETE,
+} ESyncFsmState;
+
 typedef struct SNodeInfo {
   int64_t   clusterId;
   int32_t   nodeId;
@@ -94,6 +100,12 @@ typedef struct SNodeInfo {
   char      nodeFqdn[TSDB_FQDN_LEN];
   ESyncRole nodeRole;
 } SNodeInfo;
+
+typedef struct SSyncTLV {
+  int32_t typ;
+  int32_t len;
+  char    val[];
+} SSyncTLV;
 
 typedef struct SSyncCfg {
   int32_t   totalReplicaNum;
@@ -139,13 +151,16 @@ typedef struct SReConfigCbMeta {
 typedef struct SSnapshotParam {
   SyncIndex start;
   SyncIndex end;
+  SSyncTLV* data;
 } SSnapshotParam;
 
 typedef struct SSnapshot {
-  void*     data;
-  SyncIndex lastApplyIndex;
-  SyncTerm  lastApplyTerm;
-  SyncIndex lastConfigIndex;
+  int32_t       type;
+  SSyncTLV*     data;
+  ESyncFsmState state;
+  SyncIndex     lastApplyIndex;
+  SyncTerm      lastApplyTerm;
+  SyncIndex     lastConfigIndex;
 } SSnapshot;
 
 typedef struct SSnapshotMeta {
@@ -169,9 +184,10 @@ typedef struct SSyncFSM {
   void (*FpBecomeLeaderCb)(const struct SSyncFSM* pFsm);
   void (*FpBecomeFollowerCb)(const struct SSyncFSM* pFsm);
   void (*FpBecomeLearnerCb)(const struct SSyncFSM* pFsm);
+  void (*FpBecomeAssignedLeaderCb)(const struct SSyncFSM* pFsm);
 
   int32_t (*FpGetSnapshot)(const struct SSyncFSM* pFsm, SSnapshot* pSnapshot, void* pReaderParam, void** ppReader);
-  void (*FpGetSnapshotInfo)(const struct SSyncFSM* pFsm, SSnapshot* pSnapshot);
+  int32_t (*FpGetSnapshotInfo)(const struct SSyncFSM* pFsm, SSnapshot* pSnapshot);
 
   int32_t (*FpSnapshotStartRead)(const struct SSyncFSM* pFsm, void* pReaderParam, void** ppReader);
   void (*FpSnapshotStopRead)(const struct SSyncFSM* pFsm, void* pReader);
@@ -205,6 +221,7 @@ typedef struct SSyncLogStore {
 
   SyncIndex (*syncLogWriteIndex)(struct SSyncLogStore* pLogStore);
   SyncIndex (*syncLogLastIndex)(struct SSyncLogStore* pLogStore);
+  SyncIndex (*syncLogIndexRetention)(struct SSyncLogStore* pLogStore, int64_t bytes);
   SyncTerm (*syncLogLastTerm)(struct SSyncLogStore* pLogStore);
 
   int32_t (*syncLogAppendEntry)(struct SSyncLogStore* pLogStore, SSyncRaftEntry* pEntry, bool forcSync);
@@ -220,7 +237,7 @@ typedef struct SSyncInfo {
   int32_t       batchSize;
   SSyncCfg      syncCfg;
   char          path[TSDB_FILENAME_LEN];
-  SWal*         pWal;
+  struct SWal*  pWal;
   SSyncFSM*     pFsm;
   SMsgCb*       msgcb;
   int32_t       pingMs;
@@ -246,17 +263,18 @@ typedef struct SSyncState {
   int64_t    startTimeMs;
 } SSyncState;
 
-int32_t syncInit();
-void    syncCleanUp();
-int64_t syncOpen(SSyncInfo* pSyncInfo, int32_t vnodeVersion);
-int32_t syncStart(int64_t rid);
-void    syncStop(int64_t rid);
-void    syncPreStop(int64_t rid);
-void    syncPostStop(int64_t rid);
-int32_t syncPropose(int64_t rid, SRpcMsg* pMsg, bool isWeak, int64_t* seq);
-int32_t syncCheckMember(int64_t rid);
-int32_t syncIsCatchUp(int64_t rid);
+int32_t   syncInit();
+void      syncCleanUp();
+int64_t   syncOpen(SSyncInfo* pSyncInfo, int32_t vnodeVersion);
+int32_t   syncStart(int64_t rid);
+void      syncStop(int64_t rid);
+void      syncPreStop(int64_t rid);
+void      syncPostStop(int64_t rid);
+int32_t   syncPropose(int64_t rid, SRpcMsg* pMsg, bool isWeak, int64_t* seq);
+int32_t   syncCheckMember(int64_t rid);
+int32_t   syncIsCatchUp(int64_t rid);
 ESyncRole syncGetRole(int64_t rid);
+int64_t   syncGetTerm(int64_t rid);
 int32_t   syncProcessMsg(int64_t rid, SRpcMsg* pMsg);
 int32_t   syncReconfig(int64_t rid, SSyncCfg* pCfg);
 int32_t   syncBeginSnapshot(int64_t rid, int64_t lastApplyIndex);
@@ -268,12 +286,20 @@ bool      syncSnapshotSending(int64_t rid);
 bool      syncSnapshotRecving(int64_t rid);
 int32_t   syncSendTimeoutRsp(int64_t rid, int64_t seq);
 int32_t   syncForceBecomeFollower(SSyncNode* ths, const SRpcMsg* pRpcMsg);
+int32_t   syncBecomeAssignedLeader(SSyncNode* ths, SRpcMsg* pRpcMsg);
+
+int32_t syncUpdateArbTerm(int64_t rid, SyncTerm arbTerm);
 
 SSyncState  syncGetState(int64_t rid);
+int32_t     syncGetArbToken(int64_t rid, char* outToken);
+int32_t     syncGetAssignedLogSynced(int64_t rid);
 void        syncGetRetryEpSet(int64_t rid, SEpSet* pEpSet);
 const char* syncStr(ESyncState state);
 
-int32_t    syncNodeGetConfig(int64_t rid, SSyncCfg *cfg);
+int32_t syncNodeGetConfig(int64_t rid, SSyncCfg* cfg);
+
+// util
+int32_t syncSnapInfoDataRealloc(SSnapshot* pSnap, int32_t size);
 
 #ifdef __cplusplus
 }

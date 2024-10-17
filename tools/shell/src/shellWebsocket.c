@@ -30,7 +30,16 @@ int shell_conn_ws_server(bool first) {
   fprintf(stdout, "trying to connect %s****** ", cuttedDsn);
   fflush(stdout);
   for (int i = 0; i < shell.args.timeout; i++) {
-    shell.ws_conn = ws_connect_with_dsn(shell.args.dsn);
+    if(shell.args.is_bi_mode) {
+      size_t len = strlen(shell.args.dsn);
+      char * dsn = taosMemoryMalloc(len + 32);
+      sprintf(dsn, "%s&conn_mode=1", shell.args.dsn);
+      shell.ws_conn = ws_connect(dsn);
+      taosMemoryFree(dsn);
+    } else {
+      shell.ws_conn = ws_connect(shell.args.dsn);
+    }
+
     if (NULL == shell.ws_conn) {
       int errNo = ws_errno(NULL);
       if (0xE001 == errNo) {
@@ -68,7 +77,7 @@ int shell_conn_ws_server(bool first) {
       }
       fprintf(stdout, "successfully connected to %s\n", host);
     } else {
-      fprintf(stdout, "successfully connected to cloud service\n");
+      fprintf(stdout, "successfully connected to service\n");
     }
   }
   fflush(stdout);
@@ -86,7 +95,7 @@ int shell_conn_ws_server(bool first) {
 static int horizontalPrintWebsocket(WS_RES* wres, double* execute_time) {
   const void* data = NULL;
   int rows;
-  ws_fetch_block(wres, &data, &rows);
+  ws_fetch_raw_block(wres, &data, &rows);
   if (wres) {
     *execute_time += (double)(ws_take_timing(wres)/1E6);
   }
@@ -120,7 +129,7 @@ static int horizontalPrintWebsocket(WS_RES* wres, double* execute_time) {
       putchar('\n');
     }
     numOfRows += rows;
-    ws_fetch_block(wres, &data, &rows);
+    ws_fetch_raw_block(wres, &data, &rows);
   } while (rows && !shell.stop_query);
   return numOfRows;
 }
@@ -128,7 +137,7 @@ static int horizontalPrintWebsocket(WS_RES* wres, double* execute_time) {
 static int verticalPrintWebsocket(WS_RES* wres, double* pexecute_time) {
   int rows = 0;
   const void* data = NULL;
-  ws_fetch_block(wres, &data, &rows);
+  ws_fetch_raw_block(wres, &data, &rows);
   if (wres) {
     *pexecute_time += (double)(ws_take_timing(wres)/1E6);
   }
@@ -163,7 +172,7 @@ static int verticalPrintWebsocket(WS_RES* wres, double* pexecute_time) {
       }
       numOfRows++;
     }
-    ws_fetch_block(wres, &data, &rows);
+    ws_fetch_raw_block(wres, &data, &rows);
   } while (rows && !shell.stop_query);
   return numOfRows;
 }
@@ -183,7 +192,7 @@ static int dumpWebsocketToFile(const char* fname, WS_RES* wres,
   }
   int rows = 0;
   const void* data = NULL;
-  ws_fetch_block(wres, &data, &rows);
+  ws_fetch_raw_block(wres, &data, &rows);
   if (wres) {
     *pexecute_time += (double)(ws_take_timing(wres)/1E6);
   }
@@ -217,7 +226,7 @@ static int dumpWebsocketToFile(const char* fname, WS_RES* wres,
       }
       taosFprintfFile(pFile, "\r\n");
     }
-    ws_fetch_block(wres, &data, &rows);
+    ws_fetch_raw_block(wres, &data, &rows);
   } while (rows && !shell.stop_query);
   taosCloseFile(&pFile);
   return numOfRows;
@@ -238,6 +247,7 @@ static int shellDumpWebsocket(WS_RES *wres, char *fname,
   return numOfRows;
 }
 
+char * strendG(const char* pstr);
 void shellRunSingleCommandWebsocketImp(char *command) {
   int64_t st, et;
   char   *sptr = NULL;
@@ -246,22 +256,17 @@ void shellRunSingleCommandWebsocketImp(char *command) {
   bool    printMode = false;
 
   if ((sptr = strstr(command, ">>")) != NULL) {
-    cptr = strstr(command, ";");
-    if (cptr != NULL) {
-      *cptr = '\0';
-    }
-
     fname = sptr + 2;
     while (*fname == ' ') fname++;
     *sptr = '\0';
-  }
 
-  if ((sptr = strstr(command, "\\G")) != NULL) {
-    cptr = strstr(command, ";");
+    cptr = strstr(fname, ";");
     if (cptr != NULL) {
       *cptr = '\0';
     }
+  }
 
+  if ((sptr = strendG(command)) != NULL) {
     *sptr = '\0';
     printMode = true;  // When output to a file, the switch does not work.
   }

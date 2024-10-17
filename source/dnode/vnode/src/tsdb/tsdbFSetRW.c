@@ -14,6 +14,7 @@
  */
 
 #include "tsdbFSetRW.h"
+#include "meta.h"
 
 // SFSetWriter ==================================================
 struct SFSetWriter {
@@ -21,7 +22,7 @@ struct SFSetWriter {
 
   SSkmInfo skmTb[1];
   SSkmInfo skmRow[1];
-  uint8_t *bufArr[10];
+  SBuffer  buffers[10];
 
   struct {
     TABLEID tbid[1];
@@ -32,6 +33,7 @@ struct SFSetWriter {
   int32_t          blockDataIdx;
   SDataFileWriter *dataWriter;
   SSttFileWriter  *sttWriter;
+  SHashObj        *pColCmprObj;
 };
 
 static int32_t tsdbFSetWriteTableDataBegin(SFSetWriter *writer, const TABLEID *tbid) {
@@ -43,6 +45,12 @@ static int32_t tsdbFSetWriteTableDataBegin(SFSetWriter *writer, const TABLEID *t
 
   code = tsdbUpdateSkmTb(writer->config->tsdb, writer->ctx->tbid, writer->skmTb);
   TSDB_CHECK_CODE(code, lino, _exit);
+
+  if (writer->pColCmprObj != NULL) {
+    taosHashCleanup(writer->pColCmprObj);
+    writer->pColCmprObj = NULL;
+  }
+  code = metaGetColCmpr(writer->config->tsdb->pVnode->pMeta, tbid->suid ? tbid->suid : tbid->uid, &writer->pColCmprObj);
 
   writer->blockDataIdx = 0;
   for (int32_t i = 0; i < ARRAY_SIZE(writer->blockData); i++) {
@@ -68,8 +76,6 @@ static int32_t tsdbFSetWriteTableDataEnd(SFSetWriter *writer) {
   int32_t numRow = ((writer->blockData[pidx].nRow + writer->blockData[cidx].nRow) >> 1);
 
   if (writer->blockData[pidx].nRow > 0 && numRow >= writer->config->minRow) {
-    ASSERT(writer->blockData[pidx].nRow == writer->config->maxRow);
-
     SRowInfo row = {
         .suid = writer->ctx->tbid->suid,
         .uid = writer->ctx->tbid->uid,
@@ -123,6 +129,9 @@ _exit:
   if (code) {
     TSDB_ERROR_LOG(TD_VID(writer->config->tsdb->pVnode), lino, code);
   }
+  taosHashCleanup(writer->pColCmprObj);
+  writer->pColCmprObj = NULL;
+
   return code;
 }
 
@@ -131,7 +140,9 @@ int32_t tsdbFSetWriterOpen(SFSetWriterConfig *config, SFSetWriter **writer) {
   int32_t lino = 0;
 
   writer[0] = taosMemoryCalloc(1, sizeof(*writer[0]));
-  if (writer[0] == NULL) return TSDB_CODE_OUT_OF_MEMORY;
+  if (writer[0] == NULL) {
+    return terrno;
+  }
 
   writer[0]->config[0] = config[0];
 
@@ -148,7 +159,8 @@ int32_t tsdbFSetWriterOpen(SFSetWriterConfig *config, SFSetWriter **writer) {
         .compactVersion = config->compactVersion,
         .skmTb = writer[0]->skmTb,
         .skmRow = writer[0]->skmRow,
-        .bufArr = writer[0]->bufArr,
+        .lcn = config->lcn,
+        .buffers = writer[0]->buffers,
     };
     for (int32_t ftype = 0; ftype < TSDB_FTYPE_MAX; ++ftype) {
       dataWriterConfig.files[ftype].exist = config->files[ftype].exist;
@@ -172,7 +184,8 @@ int32_t tsdbFSetWriterOpen(SFSetWriterConfig *config, SFSetWriter **writer) {
       .level = config->level,
       .skmTb = writer[0]->skmTb,
       .skmRow = writer[0]->skmRow,
-      .bufArr = writer[0]->bufArr,
+      .buffers = writer[0]->buffers,
+
   };
   code = tsdbSttFileWriterOpen(&sttWriterConfig, &writer[0]->sttWriter);
   TSDB_CHECK_CODE(code, lino, _exit);
@@ -208,8 +221,8 @@ int32_t tsdbFSetWriterClose(SFSetWriter **writer, bool abort, TFileOpArray *fopA
   for (int32_t i = 0; i < ARRAY_SIZE(writer[0]->blockData); i++) {
     tBlockDataDestroy(&writer[0]->blockData[i]);
   }
-  for (int32_t i = 0; i < ARRAY_SIZE(writer[0]->bufArr); i++) {
-    tFree(writer[0]->bufArr[i]);
+  for (int32_t i = 0; i < ARRAY_SIZE(writer[0]->buffers); i++) {
+    tBufferDestroy(&writer[0]->buffers[i]);
   }
   tDestroyTSchema(writer[0]->skmRow->pTSchema);
   tDestroyTSchema(writer[0]->skmTb->pTSchema);
@@ -244,10 +257,11 @@ int32_t tsdbFSetWriteRow(SFSetWriter *writer, SRowInfo *row) {
       TSDB_CHECK_CODE(code, lino, _exit);
     }
 
-    TSDBKEY key = TSDBROW_KEY(&row->row);
-    if (key.version <= writer->config->compactVersion        //
-        && writer->blockData[writer->blockDataIdx].nRow > 0  //
-        && key.ts == writer->blockData[writer->blockDataIdx].aTSKEY[writer->blockData[writer->blockDataIdx].nRow - 1]) {
+    if (TSDBROW_VERSION(&row->row) <= writer->config->compactVersion  //
+        && writer->blockData[writer->blockDataIdx].nRow > 0           //
+        && tsdbRowCompareWithoutVersion(&row->row,
+                                        &tsdbRowFromBlockData(&writer->blockData[writer->blockDataIdx],
+                                                              writer->blockData[writer->blockDataIdx].nRow - 1)) == 0) {
       code = tBlockDataUpdateRow(&writer->blockData[writer->blockDataIdx], &row->row, writer->skmRow->pTSchema);
       TSDB_CHECK_CODE(code, lino, _exit);
     } else {

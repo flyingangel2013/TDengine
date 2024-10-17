@@ -32,12 +32,12 @@ extern "C" {
 #define vDebug(...) do { if (vDebugFlag & DEBUG_DEBUG) { taosPrintLog("VND ", DEBUG_DEBUG, vDebugFlag, __VA_ARGS__); }}    while(0)
 #define vTrace(...) do { if (vDebugFlag & DEBUG_TRACE) { taosPrintLog("VND ", DEBUG_TRACE, vDebugFlag, __VA_ARGS__); }}    while(0)
 
-#define vGTrace(param, ...) do { if (vDebugFlag & DEBUG_TRACE) { char buf[40] = {0}; TRACE_TO_STR(trace, buf); vTrace(param ", gtid:%s", __VA_ARGS__, buf);}} while(0)
-#define vGFatal(param, ...) do { if (vDebugFlag & DEBUG_FATAL) { char buf[40] = {0}; TRACE_TO_STR(trace, buf); vFatal(param ", gtid:%s", __VA_ARGS__, buf);}} while(0)
-#define vGError(param, ...) do { if (vDebugFlag & DEBUG_ERROR) { char buf[40] = {0}; TRACE_TO_STR(trace, buf); vError(param ", gtid:%s", __VA_ARGS__, buf);}} while(0)
-#define vGWarn(param, ...)  do { if (vDebugFlag & DEBUG_WARN)  { char buf[40] = {0}; TRACE_TO_STR(trace, buf); vWarn(param ", gtid:%s", __VA_ARGS__, buf);}} while(0)
-#define vGInfo(param, ...)  do { if (vDebugFlag & DEBUG_INFO)  { char buf[40] = {0}; TRACE_TO_STR(trace, buf); vInfo(param ", gtid:%s", __VA_ARGS__, buf);}} while(0)
-#define vGDebug(param, ...) do { if (vDebugFlag & DEBUG_DEBUG) { char buf[40] = {0}; TRACE_TO_STR(trace, buf); vDebug(param ", gtid:%s", __VA_ARGS__, buf);}}    while(0)
+#define vGTrace(param, ...) do { if (vDebugFlag & DEBUG_TRACE) { char buf[40] = {0}; TRACE_TO_STR(trace, buf); vTrace(param ",QID:%s", __VA_ARGS__, buf);}} while(0)
+#define vGFatal(param, ...) do { if (vDebugFlag & DEBUG_FATAL) { char buf[40] = {0}; TRACE_TO_STR(trace, buf); vFatal(param ",QID:%s", __VA_ARGS__, buf);}} while(0)
+#define vGError(param, ...) do { if (vDebugFlag & DEBUG_ERROR) { char buf[40] = {0}; TRACE_TO_STR(trace, buf); vError(param ",QID:%s", __VA_ARGS__, buf);}} while(0)
+#define vGWarn(param, ...)  do { if (vDebugFlag & DEBUG_WARN)  { char buf[40] = {0}; TRACE_TO_STR(trace, buf); vWarn(param ",QID:%s", __VA_ARGS__, buf);}} while(0)
+#define vGInfo(param, ...)  do { if (vDebugFlag & DEBUG_INFO)  { char buf[40] = {0}; TRACE_TO_STR(trace, buf); vInfo(param ",QID:%s", __VA_ARGS__, buf);}} while(0)
+#define vGDebug(param, ...) do { if (vDebugFlag & DEBUG_DEBUG) { char buf[40] = {0}; TRACE_TO_STR(trace, buf); vDebug(param ",QID:%s", __VA_ARGS__, buf);}}    while(0)
 
 // clang-format on
 
@@ -48,9 +48,22 @@ int32_t vnodeCheckCfg(const SVnodeCfg*);
 int32_t vnodeEncodeConfig(const void* pObj, SJson* pJson);
 int32_t vnodeDecodeConfig(const SJson* pJson, void* pObj);
 
-// vnodeModule.c
-int vnodeScheduleTask(int (*execute)(void*), void* arg);
-int vnodeScheduleTaskEx(int tpid, int (*execute)(void*), void* arg);
+// vnodeAsync.c
+typedef enum {
+  EVA_PRIORITY_HIGH = 0,
+  EVA_PRIORITY_NORMAL,
+  EVA_PRIORITY_LOW,
+} EVAPriority;
+
+int32_t vnodeAsyncOpen(int32_t numOfThreads);
+void    vnodeAsyncClose();
+int32_t vnodeAChannelInit(int64_t async, SVAChannelID* channelID);
+int32_t vnodeAChannelDestroy(SVAChannelID* channelID, bool waitRunning);
+int32_t vnodeAsync(SVAChannelID* channelID, EVAPriority priority, int32_t (*execute)(void*), void (*complete)(void*),
+                   void* arg, SVATaskID* taskID);
+void    vnodeAWait(SVATaskID* taskID);
+int32_t vnodeACancel(SVATaskID* taskID);
+int32_t vnodeAsyncSetWorkers(int64_t async, int32_t numWorkers);
 
 // vnodeBufPool.c
 typedef struct SVBufPoolNode SVBufPoolNode;
@@ -82,13 +95,13 @@ struct SVBufPool {
 };
 
 int32_t vnodeOpenBufPool(SVnode* pVnode);
-int32_t vnodeCloseBufPool(SVnode* pVnode);
+void    vnodeCloseBufPool(SVnode* pVnode);
 void    vnodeBufPoolReset(SVBufPool* pPool);
 void    vnodeBufPoolAddToFreeList(SVBufPool* pPool);
 int32_t vnodeBufPoolRecycle(SVBufPool* pPool);
 
 // vnodeOpen.c
-int32_t vnodeGetPrimaryDir(const char* relPath, int32_t diskPrimary, STfs* pTfs, char* buf, size_t bufLen);
+void vnodeGetPrimaryDir(const char* relPath, int32_t diskPrimary, STfs* pTfs, char* buf, size_t bufLen);
 
 // vnodeQuery.c
 int32_t vnodeQueryOpen(SVnode* pVnode);
@@ -97,6 +110,7 @@ void    vnodeQueryClose(SVnode* pVnode);
 int32_t vnodeGetTableMeta(SVnode* pVnode, SRpcMsg* pMsg, bool direct);
 int     vnodeGetTableCfg(SVnode* pVnode, SRpcMsg* pMsg, bool direct);
 int32_t vnodeGetBatchMeta(SVnode* pVnode, SRpcMsg* pMsg);
+int32_t vnodeGetStreamProgress(SVnode* pVnode, SRpcMsg* pMsg, bool direct);
 
 // vnodeCommit.c
 int32_t vnodeBegin(SVnode* pVnode);
@@ -110,7 +124,9 @@ int32_t vnodeAsyncCommit(SVnode* pVnode);
 bool    vnodeShouldRollback(SVnode* pVnode);
 
 // vnodeSync.c
-int32_t vnodeSyncOpen(SVnode *pVnode, char *path, int32_t vnodeVersion);
+int64_t vnodeClusterId(SVnode* pVnode);
+int32_t vnodeNodeId(SVnode* pVnode);
+int32_t vnodeSyncOpen(SVnode* pVnode, char* path, int32_t vnodeVersion);
 int32_t vnodeSyncStart(SVnode* pVnode);
 void    vnodeSyncPreClose(SVnode* pVnode);
 void    vnodeSyncPostClose(SVnode* pVnode);

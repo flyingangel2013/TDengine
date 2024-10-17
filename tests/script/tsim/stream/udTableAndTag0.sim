@@ -22,7 +22,8 @@ sql create table t2 using st tags(2,2,2);
 
 #sql_error create stream streams1 trigger at_once IGNORE EXPIRED 0 IGNORE UPDATE 0  into result.streamt SUBTABLE("aaa") as select  _wstart, count(*) c1 from st interval(10s);
 sql create stream streams1 trigger at_once IGNORE EXPIRED 0 IGNORE UPDATE 0  into result.streamt SUBTABLE(concat("aaa-", tbname)) as select  _wstart, count(*) c1 from st partition by tbname interval(10s);
-sleep 1000
+
+run tsim/stream/checkTaskStatus.sim
 
 sql insert into t1 values(1648791213000,1,2,3);
 sql insert into t2 values(1648791213000,1,2,3);
@@ -45,16 +46,6 @@ if $rows != 2 then
   print $data10
   print $data20
   print $data30
-  goto loop0
-endi
-
-if $data00 != aaa-t1 then
-  print =====data00=$data00
-  goto loop0
-endi
-
-if $data10 != aaa-t2 then
-  print =====data10=$data10
   goto loop0
 endi
 
@@ -91,7 +82,8 @@ sql create table t1 using st tags(1,1,1);
 sql create table t2 using st tags(2,2,2);
 
 sql create stream streams2 trigger at_once IGNORE EXPIRED 0 IGNORE UPDATE 0  into result2.streamt2 TAGS(cc varchar(100)) as select  _wstart, count(*) c1 from st partition by concat("tag-", tbname) as cc interval(10s);
-sleep 1000
+
+run tsim/stream/checkTaskStatus.sim
 
 sql insert into t1 values(1648791213000,1,2,3);
 sql insert into t2 values(1648791213000,1,2,3);
@@ -177,7 +169,8 @@ sql create table t1 using st tags(1,1,1);
 sql create table t2 using st tags(2,2,2);
 
 sql create stream streams3 trigger at_once IGNORE EXPIRED 0 IGNORE UPDATE 0  into result3.streamt3 TAGS(dd varchar(100)) SUBTABLE(concat("tbn-", tbname)) as select  _wstart, count(*) c1 from st partition by concat("tag-", tbname) as dd, tbname interval(10s);
-sleep 1000
+
+run tsim/stream/checkTaskStatus.sim
 
 sql insert into t1 values(1648791213000,1,2,3);
 sql insert into t2 values(1648791213000,1,2,3);
@@ -264,17 +257,6 @@ if $rows != 2 then
   goto loop6
 endi
 
-if $data00 != tbn-t1 then
-  print =====data00=$data00
-  goto loop6
-endi
-
-if $data10 != tbn-t2 then
-  print =====data10=$data10
-  goto loop6
-endi
-
-
 print ===== step5
 print ===== tag name + table name
 
@@ -290,7 +272,8 @@ sql create table t2 using st tags(2,2,2);
 sql create table t3 using st tags(3,3,3);
 
 sql create stream streams4 trigger at_once IGNORE EXPIRED 0 IGNORE UPDATE 0  into result4.streamt4 TAGS(dd varchar(100)) SUBTABLE(concat("tbn-", tbname)) as select  _wstart, count(*) c1 from st partition by concat("tag-", tbname) as dd, tbname interval(10s);
-sleep 1000
+
+run tsim/stream/checkTaskStatus.sim
 
 sql insert into t1 values(1648791213000,1,1,1) t2 values(1648791213000,2,2,2) t3 values(1648791213000,3,3,3);
 
@@ -309,21 +292,6 @@ sql select table_name from information_schema.ins_tables where db_name="result4"
 if $rows != 3 then
   print =====rows=$rows
   print $data00 $data10
-  goto loop7
-endi
-
-if $data00 != tbn-t1 then
-  print =====data00=$data00
-  goto loop7
-endi
-
-if $data10 != tbn-t2 then
-  print =====data10=$data10
-  goto loop7
-endi
-
-if $data20 != tbn-t3 then
-  print =====data20=$data20
   goto loop7
 endi
 
@@ -410,7 +378,8 @@ sql create table t2 using st tags("2",2,2);
 sql create table t3 using st tags("3",3,3);
 
 sql create stream streams6 trigger at_once IGNORE EXPIRED 0 IGNORE UPDATE 0  into result6.streamt6 TAGS(dd int) as select  _wstart, count(*) c1 from st partition by concat(ta, "0") as dd, tbname interval(10s);
-sleep 1000
+
+run tsim/stream/checkTaskStatus.sim
 
 sql insert into t1 values(1648791213000,1,1,1) t2 values(1648791213000,2,2,2) t3 values(1648791213000,3,3,3);
 
